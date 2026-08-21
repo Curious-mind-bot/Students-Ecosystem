@@ -106,7 +106,7 @@
 
     <div class="phone-container">
         <div class="phone-header">
-            <h1>🛡️ Students-Ecosystem</h1>
+            <h1>Students-Ecosystem</h1>
         </div>
         
         <div class="phone-body">
@@ -118,28 +118,54 @@
             </div>
 
             <div class="card">
-                <div class="card-title">Cryptographic LOR Portal</div>
+                <div class="card-title">Recommendation request</div>
                 <div class="input-group">
                     <label>Professor Name</label>
-                    <input type="text" value="Dr. Jan Svensson" readonly>
+                    <input id="professor-name" type="text" placeholder="Professor name">
                 </div>
                 <div class="input-group">
                     <label>Institutional Email</label>
-                    <input type="text" value="j.svensson@university.edu" readonly>
+                    <input id="professor-email" type="email" placeholder="name@university.edu">
                 </div>
-                <button class="btn" onclick="alert('Secure token tracking webhook dispatched to server!')">Generate Sealed Token</button>
+                <p style="font-size:.8rem;color:#cbd5e1;line-height:1.4">Email sending is disabled until a verified institution and email provider are configured.</p>
+                <button class="btn" type="button" onclick="showLORNotice()">Prepare request</button>
             </div>
 
             <div class="card">
-                <div class="card-title">AI Statement of Purpose Shield</div>
+                <div class="card-title">Statement readiness check</div>
                 <div class="input-group">
                     <label>SOP Draft Excerpt</label>
-                    <textarea rows="3" style="resize:none; background-color:#1e293b; color:#94a3b8;" readonly>...My main goal is to migrate permanently and find full-time asylum options immediately after my entry visa is active...</textarea>
+                    <textarea id="statement" rows="4" style="resize:none" placeholder="Paste a short statement draft. The tool only highlights wording to review; it does not rewrite facts or predict outcomes."></textarea>
                 </div>
-                <button class="btn" style="background-color: #b91c1c;" onclick="alert('Scanning script executed: Flagged critical immigration risk triggers.')">Analyze Visa Risks</button>
+                <button class="btn" type="button" onclick="reviewStatement()">Review statement</button>
+                <div id="review-result" role="status" style="font-size:.8rem;color:#cbd5e1;line-height:1.5;margin-top:12px"></div>
             </div>
         </div>
     </div>
 
+    <script>
+      function showLORNotice() {
+        alert('The request workflow is intentionally disabled until the email service and secure upload portal are configured. No message has been sent.');
+      }
+
+      async function reviewStatement() {
+        const statement = document.getElementById('statement').value;
+        const result = document.getElementById('review-result');
+        result.textContent = 'Reviewing…';
+        try {
+          const response = await fetch('/api/v1/readiness/statement', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({statement})
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'The review could not be completed.');
+          const findings = data.findings.length ? `Items to review: ${data.findings.join(', ')}.` : 'No configured keywords found.';
+          result.textContent = `${findings} ${data.guidance.join(' ')}`;
+        } catch (error) {
+          result.textContent = error.message;
+        }
+      }
+    </script>
 </body>
 </html>
