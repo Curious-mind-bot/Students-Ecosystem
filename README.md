@@ -5,7 +5,7 @@ A safety-first, end-to-end ecosystem for planning an international study applica
 ## Current MVP
 
 - **Account** — register/log in (email + password, JWT-based sessions), forgot-password recovery via a one-time emailed link, plus self-service data export (`GET /api/v1/me/export`) and account deletion (`DELETE /api/v1/me`, password-confirmed).
-- **University & programme search** — browse universities and programmes, with admission requirements attached.
+- **University & programme search** — browse universities and programmes, with admission requirements attached. `academic_programs.degree_level` includes `SHORT_COURSE` (alongside the traditional `BACHELOR`/`MASTER`/`PHD`/`DIPLOMA`/`CERTIFICATE`) for summer schools and other short-form courses, plus a nullable `duration_weeks` column for programmes measured in weeks rather than months.
 - **Scholarships** — programme-specific, university-wide, or country-wide funding.
 - **Fees & cost of living** — application/tuition fees per programme, plus country/university cost-of-living estimates.
 - **Visa requirements** — destination-country study/residence permit facts, optionally narrowed by nationality.

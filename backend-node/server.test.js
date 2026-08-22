@@ -386,6 +386,20 @@ test('computeCostView sums tuition/fees/scholarships into a net-cost estimate', 
   assert.equal(typeof cost.caveat, 'string');
 });
 
+test('computeCostView includes a whole-programme TUITION_TOTAL fee in the cost estimate', async () => {
+  let call = 0;
+  const pool = {
+    query: async () => {
+      call += 1;
+      if (call === 1) return { rows: [{ fee_type: 'TUITION_TOTAL', amount_eur: '6237.00' }] };
+      return { rows: [] };
+    },
+  };
+  const cost = await computeCostView(pool, 'p1');
+  assert.equal(cost.estimated_annual_tuition_eur, 6237);
+  assert.equal(cost.estimated_net_annual_cost_if_awarded_eur, 6237);
+});
+
 test('PUT /api/v1/me/profile updates an existing account (not an upsert)', async () => {
   const pool = mockPool((text, params) => {
     assert.match(text, /UPDATE users SET/);

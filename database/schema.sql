@@ -118,9 +118,10 @@ CREATE TABLE academic_programs (
     university_id UUID NOT NULL REFERENCES universities(university_id) ON DELETE CASCADE,
     title VARCHAR(200) NOT NULL,
     degree_level VARCHAR(30) NOT NULL
-        CHECK (degree_level IN ('BACHELOR', 'MASTER', 'PHD', 'DIPLOMA', 'CERTIFICATE')),
+        CHECK (degree_level IN ('BACHELOR', 'MASTER', 'PHD', 'DIPLOMA', 'CERTIFICATE', 'SHORT_COURSE')),
     field_of_study VARCHAR(120),
     duration_months SMALLINT CHECK (duration_months > 0),
+    duration_weeks SMALLINT CHECK (duration_weeks > 0),
     programme_url TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -562,3 +563,38 @@ INSERT INTO student_accommodations (accommodation_id, university_id, accommodati
     ('51fea227-0fb4-45cf-9059-0cceab1fb259', '69ad599a-2999-446f-82ed-fcc543dc0a28', 'PRIVATE_HALL', 'Mezzino Student Living (TU Dublin''s official PBSA accommodation partner)', 'Dublin', 1453.00, NULL, NULL, ARRAY['furnished'], 'https://www.tudublin.ie/for-students/student-services-and-support/accommodation--living-in-dublin/campus-commute/international-students/', NULL, 'https://www.tudublin.ie/media/website/for-students/documents/TU-Dublin-Cost-of-Living-Guide-2026.pdf', '2026-08-22', 'TU Dublin has no on-campus halls; this figure is TU Dublin''s own published market-average purpose-built-student-accommodation rate (including service charge), not a single named room type. Cheaper "digs" (room in a family home) options are also available from ~EUR 559-709/month per the same official cost-of-living guide. Deposit amount and distance to campus for a specific room type are not published — left NULL rather than guessed.'),
     ('abeafb36-2943-44c1-9a82-c60ce238aa6e', '11c7a6b9-afaf-4cc3-aaba-2afc8d8968be', 'PRIVATE_HALL', 'Parchment Square (Model Farm Road, adjoining MTU Bishopstown campus)', 'Cork', 489.00, 300.00, NULL, ARRAY['furnished'], 'https://www.parchmentsquarecork.com/student-accommodation-cork/accommodation/rates-2026', NULL, 'https://www.parchmentsquarecork.com/student-accommodation-cork/accommodation/rates-2026', '2026-08-22', 'Cheapest official 2026/27 option: a Shared Room, Shared Bathroom for the ~41-week academic year (21 Aug 2026-4 Jun 2027), EUR 4,600 total including a EUR 900 service charge (averaged to a monthly figure here). A non-refundable EUR 250 booking fee also applies (not included in rent). Adjoins MTU''s Bishopstown campus via a private walkway — exact distance in km is not stated, so left NULL.'),
     ('8115518f-1849-4c44-836b-6c7b661e3c50', '81361940-dd7f-4839-ab74-65d4f2d768b8', 'SHARED_APARTMENT', 'Private rental market (rooms/apartments/"digs") — ATU Galway does not operate its own accommodation', 'Galway', 550.00, NULL, NULL, ARRAY[]::text[], NULL, NULL, 'https://www.atu.ie/student-life/accommodation', '2026-08-22', 'ATU''s own accommodation page states it owns/manages no student housing and is not party to these private tenancy agreements; it instead signposts a EUR 450-650/month private-market range (rooms, apartments, and "digs" — a room in a family home), midpoint used here. Deposit amount and distance to campus are therefore not published for any single property — left NULL rather than guessed. Student villages near ATU Galway typically open bookings in January/February.');
+
+-- Short courses / summer schools batch (added 2026-08-22). Researched live
+-- against each already-seeded university's official site. Only currently
+-- open, individually-applicable programmes were seeded — several real
+-- programmes were found and deliberately excluded: MODUL University Vienna's
+-- GoGlobal Summer School is real but its own page states it is "currently
+-- postponed until further notice"; European University Cyprus's Summer
+-- Science Academy is real but for high-school students, not this app's
+-- international-applicant audience; University of Nicosia's and Frederick
+-- University's summer-school pages either returned truncated content or a
+-- dead link on direct fetch; TU Dublin, MTU, ATU, FH Technikum Wien, and
+-- FHWien der WKW had no genuine externally-applicable short course found.
+-- Where a fact (admission requirement, fee) was not disclosed on the fetched
+-- official page, it is left NULL rather than guessed, per this project's
+-- standing rule — see notes on each row below.
+INSERT INTO academic_programs (program_id, university_id, title, degree_level, field_of_study, duration_weeks, programme_url) VALUES
+    ('f228d519-b6be-4e1e-bca3-5f017008d4d8', '87c1705f-1721-4d4b-8936-3230cc128a2e', 'International Summer School — Biosciences, Medicine & Public Health', 'SHORT_COURSE', 'Biosciences, Medicine & Public Health', 3, 'https://www.bmh.manchester.ac.uk/study/summer-schools/'),
+    ('669f7532-9a8f-4280-9acd-06e6f69fee41', '22222222-2222-2222-2222-222222222222', 'Summer School: Circularity in the Built Environment', 'SHORT_COURSE', 'Built Environment', NULL, 'https://www.tudelft.nl/en/architecture-and-the-built-environment/study/summerschools'),
+    ('8d36381b-c8e5-4adc-94ee-7484956b6553', '11111111-1111-1111-1111-111111111111', 'Munich International Summer University (MISU)', 'SHORT_COURSE', NULL, NULL, 'https://www.lmu.de/en/study/all-degrees-and-programs/programs-for-international-visiting-students/munich-international-summer-university/');
+
+INSERT INTO admission_requirements (requirement_id, program_id, minimum_cgpa_percentage, official_funds_requirement_eur, language_test_name, minimum_language_score, required_documents, source_url, source_checked_on, notes) VALUES
+    ('67771cfa-2fa8-43c7-a94e-53a241e4b1cd', 'f228d519-b6be-4e1e-bca3-5f017008d4d8', 55.00, NULL, 'IELTS', '6.0', NULL, 'https://www.bmh.manchester.ac.uk/study/summer-schools/', '2026-08-22', 'Open to undergraduates registered at another institution "from around the world." Academic minimum is stated as a British Lower Second (55%) or international equivalent, not a raw university GPA scale — recorded here as-is. IELTS 6.0 overall with 6.0 in each component required for non-native English speakers. 2026 dates: Mon 20 Jul - Fri 7 Aug 2026.'),
+    ('ab157b3c-23e2-4265-86cc-79131d1770e2', '669f7532-9a8f-4280-9acd-06e6f69fee41', NULL, NULL, NULL, NULL, NULL, 'https://www.tudelft.nl/en/architecture-and-the-built-environment/study/summerschools', '2026-08-22', 'Open to "students from all levels of education (BSc, MSc) as well as PhD researchers and professionals," per the official page. No specific admission requirement, fee, or scholarship is disclosed there — confirm directly before applying. Offered in two 2026 track options: 3 days (26-28 Jun) or 8 days (26 Jun-3 Jul); TU Delft also runs three other named 2026 summer schools on the same page (Sustainable Housing; IDEA League Advancing Decision Support; Planning and Design for the Just City) with dates but no eligibility/fee disclosed either.'),
+    ('e27f97e6-6876-44d1-8de7-de7440000c26', '8d36381b-c8e5-4adc-94ee-7484956b6553', NULL, NULL, NULL, NULL, NULL, 'https://www.lmu.de/en/study/all-degrees-and-programs/programs-for-international-visiting-students/munich-international-summer-university/', '2026-08-22', 'Recurring annual program ("500+ students from 80+ countries" per year); open to international bachelor''s/master''s/PhD students and young professionals. Individual academies run 2-10 weeks depending on track, some blended (1 week online + 2 weeks onsite) — no single duration applies, which is why duration_weeks is left NULL on the programme row. Admission requirement and fee are not disclosed on the fetched page (it references a separate "Fees and funding" section whose content could not be retrieved) — confirm directly before applying.');
+
+-- Manchester's summer-school fee is a single all-inclusive package (course +
+-- single-room accommodation + airport transfers + activities), not a
+-- tuition-only figure — recorded as TUITION_TOTAL with that caveat in notes
+-- so it isn't mistaken for a comparable per-year tuition rate. Converted from
+-- GBP at the live ECB reference rate (1 EUR = 0.8567 GBP, 2026-08-21, via
+-- https://api.frankfurter.dev/v1/latest?from=EUR&to=GBP). No fee row is
+-- seeded for the TU Delft or LMU Munich programmes above since neither
+-- discloses one.
+INSERT INTO program_fees (fee_id, program_id, fee_type, student_category, amount_eur, source_url, source_checked_on, notes) VALUES
+    ('b1c99501-0df2-44e7-a2c3-90cca985f85e', 'f228d519-b6be-4e1e-bca3-5f017008d4d8', 'TUITION_TOTAL', 'INTERNATIONAL', 3501.81, 'https://www.bmh.manchester.ac.uk/study/summer-schools/', '2026-08-22', 'Original figure: GBP 3,000, converted at 1 EUR = 0.8567 GBP (ECB reference rate, 2026-08-21). This is an all-inclusive package fee covering the course, single-room accommodation, airport transfers, and activities — not a tuition-only figure. No scholarship or fee waiver is mentioned on the official page.');

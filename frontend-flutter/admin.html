@@ -101,7 +101,7 @@
         // real source of truth and any drift here just falls back to a
         // friendly 400 from the server.
         const ENUM_OPTIONS = {
-            'academic_programs.degree_level': ['BACHELOR', 'MASTER', 'PHD', 'DIPLOMA', 'CERTIFICATE'],
+            'academic_programs.degree_level': ['BACHELOR', 'MASTER', 'PHD', 'DIPLOMA', 'CERTIFICATE', 'SHORT_COURSE'],
             'scholarships.coverage_type': ['FULL_TUITION', 'PARTIAL_TUITION', 'LIVING_STIPEND', 'FULL_FUNDING', 'TRAVEL_GRANT'],
             'program_fees.fee_type': ['APPLICATION_FEE', 'TUITION_PER_SEMESTER', 'TUITION_PER_YEAR', 'TUITION_TOTAL', 'ADMINISTRATIVE_FEE'],
             'program_fees.student_category': ['DOMESTIC', 'EU', 'INTERNATIONAL'],
@@ -136,7 +136,7 @@
             if (column.endsWith('_url')) return 'url';
             if (column === 'contact_email') return 'email';
             if (column === 'source_checked_on' || column === 'application_deadline') return 'date';
-            if (/(_eur|_percentage|_months|_days|_km)$/.test(column)) return 'number';
+            if (/(_eur|_percentage|_months|_weeks|_days|_km)$/.test(column)) return 'number';
             return 'text';
         }
 

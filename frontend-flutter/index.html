@@ -230,6 +230,7 @@
                         <option value="PHD">PhD</option>
                         <option value="DIPLOMA">Diploma</option>
                         <option value="CERTIFICATE">Certificate</option>
+                        <option value="SHORT_COURSE">Short course</option>
                     </select>
                 </div>
                 <button class="btn" type="button" onclick="findMatches()" data-i18n="find_matches_button">Find my matches</button>
@@ -555,7 +556,7 @@
         const academicColor = m.academic.status === 'MEETS_STATED_MINIMUM' ? '#4ade80' : m.academic.status === 'BELOW_STATED_MINIMUM' ? '#f87171' : '#94a3b8';
         return `
           <div class="card" style="margin-bottom:8px;cursor:pointer" onclick="showUniversityByProgram('${m.program_id}')">
-            <div style="font-weight:bold">${escapeHtml(m.title)}</div>
+            <div style="font-weight:bold">${escapeHtml(m.title)} <span style="font-weight:normal;color:#94a3b8">(${escapeHtml(m.degree_level)})</span></div>
             <div>${escapeHtml(m.university_name)} · ${escapeHtml(m.country_code)}</div>
             <div style="color:${academicColor}">Academic: ${escapeHtml(m.academic.status)}</div>
             <div>Est. net annual cost if awarded: ${formatMoney(m.estimated_net_annual_cost_if_awarded_eur)}</div>
@@ -905,7 +906,7 @@
           const programsHtml = (data.programs || []).map((p) => `
             <div style="margin-bottom:8px">
               <a href="#" onclick="showProgram('${p.program_id}'); return false;">${escapeHtml(p.title)}</a>
-              (${escapeHtml(p.degree_level)})
+              (${escapeHtml(p.degree_level)}${p.duration_weeks ? `, ${escapeHtml(p.duration_weeks)} week(s)` : p.duration_months ? `, ${escapeHtml(p.duration_months)} month(s)` : ''})
             </div>`).join('') || 'No programmes listed for this university yet.';
           const accommodations = data.accommodations || [];
           const accommodationsHtml = accommodations.length ? `<div style="font-weight:bold;margin:12px 0 6px">Accommodation near this university</div>` +
@@ -927,7 +928,9 @@
           const requirements = data.admission_requirements || [];
           const scholarships = data.scholarships || [];
           const fees = data.fees || [];
+          const durationLabel = data.duration_weeks ? `${data.duration_weeks} week(s)` : data.duration_months ? `${data.duration_months} month(s)` : null;
           detailsEl.innerHTML = `<div style="font-weight:bold;margin-bottom:6px">${escapeHtml(data.title)} · ${escapeHtml(data.university_name)}</div>` +
+            `<div style="color:#94a3b8;margin-bottom:8px">${escapeHtml(data.degree_level)}${durationLabel ? ` · ${escapeHtml(durationLabel)}` : ''}</div>` +
             (requirements.length ? requirements.map((r) => `
               <div style="margin-bottom:10px;border-top:1px solid #334155;padding-top:8px">
                 ${r.minimum_cgpa_percentage != null ? `<div>Minimum CGPA: ${r.minimum_cgpa_percentage}%</div>` : ''}

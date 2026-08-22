@@ -34,7 +34,7 @@ const ADMIN_RESOURCES = {
   },
   academic_programs: {
     idColumn: 'program_id',
-    columns: ['university_id', 'title', 'degree_level', 'field_of_study', 'duration_months', 'programme_url'],
+    columns: ['university_id', 'title', 'degree_level', 'field_of_study', 'duration_months', 'duration_weeks', 'programme_url'],
     requiredColumns: ['university_id', 'title', 'degree_level'],
   },
   admission_requirements: {
@@ -126,7 +126,7 @@ async function computeCostView(pool, programId) {
   );
   if (!feeRows.length) return null;
   const sum = (types) => feeRows.filter((f) => types.includes(f.fee_type)).reduce((total, f) => total + Number(f.amount_eur), 0);
-  const estimatedAnnualTuitionEur = sum(['TUITION_PER_YEAR', 'ADMINISTRATIVE_FEE']);
+  const estimatedAnnualTuitionEur = sum(['TUITION_PER_YEAR', 'ADMINISTRATIVE_FEE', 'TUITION_TOTAL']);
   const oneTimeFeesEur = sum(['APPLICATION_FEE']);
   const { rows: scholarshipRows } = await pool.query('SELECT amount_eur FROM scholarships WHERE program_id = $1', [programId]);
   const totalPotentialScholarshipValueEur = scholarshipRows.reduce((total, s) => total + Number(s.amount_eur || 0), 0);
@@ -135,7 +135,8 @@ async function computeCostView(pool, programId) {
     one_time_fees_eur: oneTimeFeesEur,
     total_potential_scholarship_value_eur: totalPotentialScholarshipValueEur,
     estimated_net_annual_cost_if_awarded_eur: Math.max(0, estimatedAnnualTuitionEur - totalPotentialScholarshipValueEur),
-    caveat: 'This assumes you receive every listed scholarship at once, which is unlikely — check eligibility criteria for each individually. Not an official cost figure.',
+    caveat: 'This assumes you receive every listed scholarship at once, which is unlikely — check eligibility criteria for each individually. '
+      + 'If the programme\'s fee is published as a one-time whole-programme/whole-course total rather than a per-year rate (see the fee\'s own notes), this figure is that total, not an annual cost — not an official cost figure either way.',
   };
 }
 
@@ -383,7 +384,7 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
          ORDER BY source_checked_on DESC LIMIT 1
        ) req ON true
        LEFT JOIN LATERAL (
-         SELECT SUM(amount_eur) FILTER (WHERE fee_type IN ('TUITION_PER_YEAR', 'ADMINISTRATIVE_FEE')) AS estimated_annual_tuition_eur,
+         SELECT SUM(amount_eur) FILTER (WHERE fee_type IN ('TUITION_PER_YEAR', 'ADMINISTRATIVE_FEE', 'TUITION_TOTAL')) AS estimated_annual_tuition_eur,
                 SUM(amount_eur) FILTER (WHERE fee_type = 'APPLICATION_FEE') AS one_time_fees_eur
          FROM program_fees WHERE program_id = p.program_id AND student_category = 'INTERNATIONAL'
        ) fee ON true
