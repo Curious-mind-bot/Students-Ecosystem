@@ -1,6 +1,8 @@
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret';
+
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createApp } = require('./server');
+const { createApp, hashPassword } = require('./server');
 
 function mockPool(handler) {
   return { query: async (text, params) => handler(text, params), connect: async () => ({ query: async () => ({ rows: [] }), release() {} }) };
@@ -221,5 +223,125 @@ test('GET /api/v1/accommodations/:id returns the record when found', async () =>
   const data = await response.json();
   assert.equal(response.status, 200);
   assert.equal(data.provider_name, 'Studierendenwerk');
+  server.close();
+});
+
+test('PUT /api/v1/me/profile updates an existing account (not an upsert)', async () => {
+  const pool = mockPool((text, params) => {
+    assert.match(text, /UPDATE users SET/);
+    assert.deepEqual(params, ['u1', 'Jane Student', 'jane@example.com', 'IN', 78, 12000]);
+    return { rows: [{ user_id: 'u1', full_name: 'Jane Student', email: 'jane@example.com', passport_country: 'IN', cgpa_percentage: 78, liquid_funds_eur: 12000 }] };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/me/profile`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ fullName: 'Jane Student', email: 'jane@example.com', passportCountry: 'IN', cgpaPercentage: 78, liquidFundsEur: 12000 }),
+  });
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data.email, 'jane@example.com');
+  server.close();
+});
+
+test('PUT /api/v1/me/profile returns 404 when the account no longer exists', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'missing-user' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/me/profile`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ fullName: 'Jane Student', email: 'jane@example.com' }),
+  });
+  assert.equal(response.status, 404);
+  server.close();
+});
+
+test('POST /api/v1/auth/register creates an account and returns a token', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/auth/register`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fullName: 'Jane Student', email: 'jane@example.com', password: 'password123' }),
+  });
+  const data = await response.json();
+  assert.equal(response.status, 201);
+  assert.equal(typeof data.token, 'string');
+  assert.equal(data.user.email, 'jane@example.com');
+  assert.equal(data.user.password_hash, undefined);
+  server.close();
+});
+
+test('POST /api/v1/auth/register rejects a short password', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/auth/register`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fullName: 'Jane Student', email: 'jane@example.com', password: 'short' }),
+  });
+  assert.equal(response.status, 400);
+  server.close();
+});
+
+test('POST /api/v1/auth/register returns 409 when the email already exists', async () => {
+  const pool = mockPool(() => { const error = new Error('duplicate'); error.code = '23505'; throw error; });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/auth/register`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ fullName: 'Jane Student', email: 'jane@example.com', password: 'password123' }),
+  });
+  assert.equal(response.status, 409);
+  server.close();
+});
+
+test('POST /api/v1/auth/login returns a token for the correct password', async () => {
+  const storedHash = hashPassword('password123');
+  const pool = mockPool(() => ({ rows: [{ user_id: 'u1', full_name: 'Jane Student', password_hash: storedHash }] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/auth/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'jane@example.com', password: 'password123' }),
+  });
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(typeof data.token, 'string');
+  server.close();
+});
+
+test('POST /api/v1/auth/login returns 401 for the wrong password', async () => {
+  const storedHash = hashPassword('password123');
+  const pool = mockPool(() => ({ rows: [{ user_id: 'u1', full_name: 'Jane Student', password_hash: storedHash }] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/auth/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'jane@example.com', password: 'wrong-password' }),
+  });
+  assert.equal(response.status, 401);
+  server.close();
+});
+
+test('POST /api/v1/auth/login returns 401 for an unknown email', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/auth/login`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'unknown@example.com', password: 'password123' }),
+  });
+  assert.equal(response.status, 401);
   server.close();
 });

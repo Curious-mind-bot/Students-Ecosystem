@@ -111,6 +111,25 @@
         
         <div class="phone-body">
             <div class="card">
+                <div class="card-title">Account</div>
+                <div class="input-group">
+                    <label>Full name (for registering)</label>
+                    <input id="account-name" type="text" placeholder="e.g. Jane Student">
+                </div>
+                <div class="input-group">
+                    <label>Email</label>
+                    <input id="account-email" type="email" placeholder="name@example.com">
+                </div>
+                <div class="input-group">
+                    <label>Password</label>
+                    <input id="account-password" type="password" placeholder="At least 8 characters">
+                </div>
+                <button class="btn" type="button" onclick="registerAccount()">Register</button>
+                <button class="btn" type="button" onclick="loginAccount()">Log in</button>
+                <div id="account-status" style="margin-top:8px;font-size:.8rem;color:#cbd5e1"></div>
+            </div>
+
+            <div class="card">
                 <div class="card-title">Find a university</div>
                 <div class="input-group">
                     <label>Search by name</label>
@@ -205,14 +224,65 @@
         alert('The request workflow is intentionally disabled until the email service and secure upload portal are configured. No message has been sent.');
       }
 
+      function getToken() {
+        try { return localStorage.getItem('se_token'); } catch (_error) { return null; }
+      }
+
+      function setToken(token) {
+        try { localStorage.setItem('se_token', token); } catch (_error) { /* ignore */ }
+      }
+
+      async function registerAccount() {
+        const fullName = document.getElementById('account-name').value;
+        const email = document.getElementById('account-email').value;
+        const password = document.getElementById('account-password').value;
+        const statusEl = document.getElementById('account-status');
+        statusEl.textContent = 'Registering…';
+        try {
+          const response = await fetch('/api/v1/auth/register', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({fullName, email, password})
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Registration failed.');
+          setToken(data.token);
+          statusEl.textContent = `Signed in as ${data.user.email}`;
+        } catch (error) {
+          statusEl.textContent = error.message;
+        }
+      }
+
+      async function loginAccount() {
+        const email = document.getElementById('account-email').value;
+        const password = document.getElementById('account-password').value;
+        const statusEl = document.getElementById('account-status');
+        statusEl.textContent = 'Signing in…';
+        try {
+          const response = await fetch('/api/v1/auth/login', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({email, password})
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Sign in failed.');
+          setToken(data.token);
+          statusEl.textContent = `Signed in as ${data.user.email}`;
+        } catch (error) {
+          statusEl.textContent = error.message;
+        }
+      }
+
       async function reviewStatement() {
         const statement = document.getElementById('statement').value;
         const result = document.getElementById('review-result');
+        const token = getToken();
+        if (!token) { result.textContent = 'Please log in first.'; return; }
         result.textContent = 'Reviewing…';
         try {
           const response = await fetch('/api/v1/readiness/sop', {
             method: 'POST',
-            headers: {'Content-Type': 'application/json'},
+            headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`},
             body: JSON.stringify({statement})
           });
           const data = await response.json();

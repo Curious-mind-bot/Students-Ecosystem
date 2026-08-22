@@ -4,6 +4,7 @@ CREATE TABLE users (
     user_id UUID PRIMARY KEY,
     full_name VARCHAR(150) NOT NULL,
     email VARCHAR(254) UNIQUE NOT NULL,
+    password_hash TEXT NOT NULL,
     passport_country CHAR(2),
     cgpa_percentage NUMERIC(5,2) CHECK (cgpa_percentage BETWEEN 0 AND 100),
     liquid_funds_eur NUMERIC(12,2) CHECK (liquid_funds_eur >= 0),

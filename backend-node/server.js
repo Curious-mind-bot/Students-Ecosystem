@@ -30,6 +30,23 @@ function authRequired(req, res, next) {
   }
 }
 
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16).toString('hex');
+  const hash = crypto.scryptSync(password, salt, 64).toString('hex');
+  return `${salt}:${hash}`;
+}
+
+function verifyPassword(password, stored) {
+  const [salt, hash] = stored.split(':');
+  const candidate = crypto.scryptSync(password, salt, 64);
+  const expected = Buffer.from(hash, 'hex');
+  return candidate.length === expected.length && crypto.timingSafeEqual(candidate, expected);
+}
+
+function signToken(userId) {
+  return jwt.sign({ sub: userId }, requireEnv('JWT_SECRET'), { algorithm: 'HS256', expiresIn: '7d' });
+}
+
 function runPython(payload) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.env.PYTHON_BIN || 'python3', [path.join(__dirname, '..', 'backend-python', 'match_engine.py')]);
@@ -72,6 +89,34 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
   app.use(express.static(path.join(__dirname, '..', 'frontend-flutter')));
 
   app.get('/api/v1/health', (_req, res) => res.json({ status: 'ok' }));
+
+  app.post('/api/v1/auth/register', async (req, res) => {
+    const { fullName, email, password } = req.body || {};
+    if (!fullName || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email || '') || typeof password !== 'string' || password.length < 8) {
+      return res.status(400).json({ error: 'fullName, a valid email, and a password of at least 8 characters are required.' });
+    }
+    const userId = crypto.randomUUID();
+    try {
+      await pool.query(
+        'INSERT INTO users (user_id, full_name, email, password_hash) VALUES ($1, $2, $3, $4)',
+        [userId, fullName, email, hashPassword(password)],
+      );
+      return res.status(201).json({ token: signToken(userId), user: { userId, fullName, email } });
+    } catch (error) {
+      if (error.code === '23505') return res.status(409).json({ error: 'An account with this email already exists.' });
+      throw error;
+    }
+  });
+
+  app.post('/api/v1/auth/login', async (req, res) => {
+    const { email, password } = req.body || {};
+    if (!email || typeof password !== 'string') return res.status(400).json({ error: 'email and password are required.' });
+    const { rows } = await pool.query('SELECT user_id, full_name, password_hash FROM users WHERE email = $1', [email]);
+    if (!rows[0] || !verifyPassword(password, rows[0].password_hash)) {
+      return res.status(401).json({ error: 'Invalid email or password.' });
+    }
+    return res.json({ token: signToken(rows[0].user_id), user: { userId: rows[0].user_id, fullName: rows[0].full_name, email } });
+  });
 
   app.post('/api/v1/readiness/sop', authRequired, async (req, res) => {
     const { statement } = req.body || {};
@@ -275,16 +320,20 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
   app.put('/api/v1/me/profile', authRequired, async (req, res) => {
     const { fullName, email, passportCountry, cgpaPercentage, liquidFundsEur } = req.body || {};
     if (!fullName || !email) return res.status(400).json({ error: 'fullName and email are required.' });
-    const { rows } = await pool.query(
-      `INSERT INTO users (user_id, full_name, email, passport_country, cgpa_percentage, liquid_funds_eur)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (user_id) DO UPDATE SET full_name = EXCLUDED.full_name, email = EXCLUDED.email,
-       passport_country = EXCLUDED.passport_country, cgpa_percentage = EXCLUDED.cgpa_percentage,
-       liquid_funds_eur = EXCLUDED.liquid_funds_eur, updated_at = now()
-       RETURNING user_id, full_name, email, passport_country, cgpa_percentage, liquid_funds_eur;`,
-      [req.user.id, fullName, email, passportCountry || null, cgpaPercentage ?? null, liquidFundsEur ?? null],
-    );
-    return res.status(200).json(rows[0]);
+    try {
+      const { rows } = await pool.query(
+        `UPDATE users SET full_name = $2, email = $3, passport_country = $4,
+         cgpa_percentage = $5, liquid_funds_eur = $6, updated_at = now()
+         WHERE user_id = $1
+         RETURNING user_id, full_name, email, passport_country, cgpa_percentage, liquid_funds_eur;`,
+        [req.user.id, fullName, email, passportCountry || null, cgpaPercentage ?? null, liquidFundsEur ?? null],
+      );
+      if (!rows[0]) return res.status(404).json({ error: 'Account not found.' });
+      return res.status(200).json(rows[0]);
+    } catch (error) {
+      if (error.code === '23505') return res.status(409).json({ error: 'That email is already in use by another account.' });
+      throw error;
+    }
   });
 
   app.get('/api/v1/applications', authRequired, async (req, res) => {
@@ -413,4 +462,4 @@ if (require.main === module) {
   app.listen(port, () => console.log(`Students-Ecosystem running on http://localhost:${port}`));
 }
 
-module.exports = { createApp, runPython };
+module.exports = { createApp, runPython, hashPassword, verifyPassword };
