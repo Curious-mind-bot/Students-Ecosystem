@@ -42,9 +42,41 @@ DATABASE_URL=postgresql://localhost:5432/students_ecosystem JWT_SECRET=<any-valu
 
 Recommendation (LOR) requests are intentionally not implemented yet: they require a secure file-upload system, access controls, retention rules, and a verified mail provider.
 
+## License
+
+Copyright (c) 2026 Curious-mind-bot. All Rights Reserved. This is proprietary, closed-source software — see [LICENSE](./LICENSE). No reuse, redistribution, or derivative works are permitted without written consent.
+
 ## Tests
 
 ```bash
 cd backend-node
 npm test
 ```
+
+## Monetization (students are never charged)
+
+The app never charges a student. Institutes and sponsors can support it instead, and every one of these is designed so paid placement can never influence search results or the "Find My Matches" ranking:
+
+- **Verified partners** (`GET /api/v1/partners`, `POST /api/v1/partners/:id/continue`) — affiliate-style referrals (e.g. a visa consultant, test-prep provider) shown in the "Trusted Partners" card with an explicit commission disclosure on every listing. Configure real partners via the `PARTNERS_JSON` env var, e.g.:
+  ```
+  PARTNERS_JSON=[{"id":"...","name":"...","category":"CONSULTANT","redirectUrl":"https://...","sourceAttribution":"..."}]
+  ```
+  Clicking "Continue to partner" is logged to `partner_conversions` with a per-click tracking token appended to the outbound URL.
+- **Sponsored content** (`GET /api/v1/sponsored-content?countryCode=..`) — direct-sold, non-behavioral placements (no tracking, no student data used for targeting) shown in a clearly labeled "Sponsored" block above university search results. Configure via `SPONSORED_CONTENT_JSON`, e.g.:
+  ```
+  SPONSORED_CONTENT_JSON=[{"id":"...","sponsorName":"...","headline":"...","linkUrl":"https://...","countryCode":"DE"}]
+  ```
+  Omit `countryCode` for a sponsor shown regardless of search filters.
+- **Institute demand analytics** (`GET /api/v1/analytics/demand`, header `x-institute-api-key`) — sells a university aggregate, anonymized view-count data for its own listing only (no individual student data, ever). Each API key is scoped to exactly one `universityId` via `INSTITUTE_ANALYTICS_KEYS_JSON`:
+  ```
+  INSTITUTE_ANALYTICS_KEYS_JSON=[{"apiKey":"...","universityId":"..."}]
+  ```
+  Backed by an anonymous `demand_events` log (no `user_id`, no IP) recorded whenever a university or programme page is viewed.
+
+The example values above are placeholders — no real partner, sponsor, or institute deal is included. An operator fills these in once real agreements exist.
+
+## Operations
+
+- **Rate limiting** — `/api/v1/auth/register` and `/api/v1/auth/login` are limited (default 20 requests / 15 minutes per IP; tune with `AUTH_RATE_LIMIT_MAX`).
+- **Error tracking** — set `SENTRY_DSN` to report unhandled errors to Sentry (optional; every request is always logged as structured JSON to stdout regardless).
+- **Staleness report** — `node backend-node/scripts/staleness-report.js` scans every sourced table (admission requirements, scholarships, fees, living costs, visa requirements, accommodations, support resources) for rows whose `source_checked_on` is older than `STALENESS_THRESHOLD_MONTHS` (default 6) and exits non-zero if any are found — run it on a schedule to know when seed data needs re-verification.

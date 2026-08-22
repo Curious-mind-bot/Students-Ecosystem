@@ -135,6 +135,24 @@ CREATE INDEX universities_country_code_idx ON universities(country_code);
 CREATE INDEX academic_programs_university_id_idx ON academic_programs(university_id);
 CREATE INDEX admission_requirements_program_id_idx ON admission_requirements(program_id);
 
+-- Anonymous demand-signal log for the institute analytics product: no
+-- user_id, no IP, nothing that identifies a student — only which
+-- university/programme was looked at and when, so we can sell universities
+-- an aggregate "how much interest are we getting" view without touching
+-- individual student data.
+CREATE TABLE demand_events (
+    event_id UUID PRIMARY KEY,
+    event_type VARCHAR(30) NOT NULL CHECK (event_type IN ('UNIVERSITY_VIEW', 'PROGRAM_VIEW')),
+    university_id UUID REFERENCES universities(university_id) ON DELETE CASCADE,
+    program_id UUID REFERENCES academic_programs(program_id) ON DELETE CASCADE,
+    country_code CHAR(2),
+    occurred_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX demand_events_university_id_idx ON demand_events(university_id);
+CREATE INDEX demand_events_program_id_idx ON demand_events(program_id);
+CREATE INDEX demand_events_occurred_at_idx ON demand_events(occurred_at);
+
 -- Local development seed data only. These are illustrative sample records,
 -- not verified official admission figures. Do not use to advise real students;
 -- always confirm current requirements on the university's own site.

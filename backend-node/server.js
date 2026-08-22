@@ -4,8 +4,16 @@ const path = require('path');
 const express = require('express');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
+const rateLimit = require('express-rate-limit');
+const Sentry = require('@sentry/node');
 const { Pool } = require('pg');
 require('dotenv').config();
+
+// Optional — only activates when an operator sets a real Sentry DSN. Never
+// required for local development or tests.
+if (process.env.SENTRY_DSN) {
+  Sentry.init({ dsn: process.env.SENTRY_DSN, tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE || 0) });
+}
 
 const APPLICATION_STATUSES = new Set(['DRAFT', 'DOCUMENTS_IN_PROGRESS', 'SUBMITTED', 'OFFER_RECEIVED', 'DECLINED', 'WITHDRAWN']);
 const DOCUMENT_STATUSES = new Set(['NOT_STARTED', 'IN_PROGRESS', 'READY', 'SUBMITTED', 'NOT_REQUIRED']);
@@ -94,6 +102,33 @@ function getPartners() {
   }
 }
 
+// Institute analytics API keys — each key is scoped to exactly one
+// universityId so one institute can never see another's demand data.
+// Configured per operator via INSTITUTE_ANALYTICS_KEYS_JSON, e.g.
+// '[{"apiKey":"...","universityId":"..."}]'.
+function getInstituteApiKeys() {
+  try {
+    const parsed = JSON.parse(process.env.INSTITUTE_ANALYTICS_KEYS_JSON || '[]');
+    return Array.isArray(parsed) ? parsed.filter((entry) => entry && entry.apiKey && entry.universityId) : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
+// Contextual, direct-sold sponsor placements — never behavioral/tracking ads,
+// never mixed into search ranking or Find My Matches. Configured per operator
+// via SPONSORED_CONTENT_JSON, same shape/spirit as PARTNERS_JSON above.
+function getSponsoredContent() {
+  try {
+    const parsed = JSON.parse(process.env.SPONSORED_CONTENT_JSON || '[]');
+    return Array.isArray(parsed) ? parsed.filter((item) =>
+      item && item.id && item.sponsorName && item.headline && item.linkUrl,
+    ) : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
 function createMailer() {
   return nodemailer.createTransport({
     host: requireEnv('EMAIL_HOST'),
@@ -108,9 +143,28 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
   app.use(express.json({ limit: '100kb' }));
   app.use(express.static(path.join(__dirname, '..', 'frontend-flutter')));
 
+  app.use((req, res, next) => {
+    const startedAt = Date.now();
+    res.on('finish', () => {
+      console.log(JSON.stringify({
+        level: 'info', type: 'request', method: req.method, path: req.path,
+        status: res.statusCode, durationMs: Date.now() - startedAt,
+      }));
+    });
+    next();
+  });
+
+  const authRateLimiter = rateLimit({
+    windowMs: 15 * 60 * 1000,
+    max: Number(process.env.AUTH_RATE_LIMIT_MAX || 20),
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: (_req, res) => res.status(429).json({ error: 'Too many attempts. Please wait a few minutes and try again.' }),
+  });
+
   app.get('/api/v1/health', (_req, res) => res.json({ status: 'ok' }));
 
-  app.post('/api/v1/auth/register', async (req, res) => {
+  app.post('/api/v1/auth/register', authRateLimiter, async (req, res) => {
     const { fullName, email, password } = req.body || {};
     if (!fullName || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email || '') || typeof password !== 'string' || password.length < 8) {
       return res.status(400).json({ error: 'fullName, a valid email, and a password of at least 8 characters are required.' });
@@ -128,7 +182,7 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
     }
   });
 
-  app.post('/api/v1/auth/login', async (req, res) => {
+  app.post('/api/v1/auth/login', authRateLimiter, async (req, res) => {
     const { email, password } = req.body || {};
     if (!email || typeof password !== 'string') return res.status(400).json({ error: 'email and password are required.' });
     const { rows } = await pool.query('SELECT user_id, full_name, password_hash FROM users WHERE email = $1', [email]);
@@ -316,7 +370,14 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
        WHERE u.university_id = $1 GROUP BY u.university_id`,
       [req.params.universityId, nationality],
     );
-    return rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'University not found.' });
+    if (!rows[0]) return res.status(404).json({ error: 'University not found.' });
+    try {
+      await pool.query(
+        `INSERT INTO demand_events (event_id, event_type, university_id, country_code) VALUES ($1, 'UNIVERSITY_VIEW', $2, $3)`,
+        [crypto.randomUUID(), rows[0].university_id, rows[0].country_code],
+      );
+    } catch (_error) { /* best-effort demand analytics; never blocks or breaks the response */ }
+    return res.json(rows[0]);
   });
 
   app.get('/api/v1/programs/:programId', async (req, res) => {
@@ -329,7 +390,14 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
        WHERE p.program_id = $1`,
       [req.params.programId],
     );
-    return rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Programme not found.' });
+    if (!rows[0]) return res.status(404).json({ error: 'Programme not found.' });
+    try {
+      await pool.query(
+        `INSERT INTO demand_events (event_id, event_type, university_id, program_id, country_code) VALUES ($1, 'PROGRAM_VIEW', $2, $3, $4)`,
+        [crypto.randomUUID(), rows[0].university_id, rows[0].program_id, rows[0].country_code],
+      );
+    } catch (_error) { /* best-effort demand analytics; never blocks or breaks the response */ }
+    return res.json(rows[0]);
   });
 
   app.get('/api/v1/living-costs', async (req, res) => {
@@ -703,6 +771,42 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
     const destination = new URL(partner.redirectUrl);
     destination.searchParams.set('ref', trackingToken);
     return res.json({ partner: partner.name, sourceAttribution: partner.sourceAttribution, affiliateDisclosure: 'Students-Ecosystem may earn a commission if you choose this partner. You are free to compare alternatives.', redirectUrl: destination.toString() });
+  });
+
+  app.get('/api/v1/sponsored-content', (req, res) => {
+    const countryCode = req.query.countryCode ? String(req.query.countryCode).toUpperCase() : null;
+    const items = getSponsoredContent()
+      .filter((item) => !item.countryCode || item.countryCode === countryCode)
+      .map((item) => ({
+        id: item.id, sponsorName: item.sponsorName, headline: item.headline, body: item.body || null,
+        linkUrl: item.linkUrl, countryCode: item.countryCode || null,
+        disclosure: item.disclosure || 'Sponsored placement — paid for by the sponsor. It never affects search results or Find My Matches ranking.',
+      }));
+    return res.json(items);
+  });
+
+  app.get('/api/v1/analytics/demand', async (req, res) => {
+    const providedKey = req.get('x-institute-api-key');
+    const keyEntry = getInstituteApiKeys().find((entry) => entry.apiKey === providedKey);
+    if (!keyEntry) return res.status(401).json({ error: 'A valid institute analytics API key is required.' });
+    const { rows } = await pool.query(
+      `SELECT event_type, date_trunc('day', occurred_at)::date AS day, count(*)::int AS view_count
+       FROM demand_events WHERE university_id = $1 GROUP BY event_type, day ORDER BY day DESC`,
+      [keyEntry.universityId],
+    );
+    return res.json({
+      universityId: keyEntry.universityId,
+      events: rows,
+      disclaimer: 'Aggregate, anonymized view counts for your institution only — no individual student data is included or ever shared.',
+    });
+  });
+
+  // eslint-disable-next-line no-unused-vars
+  app.use((err, req, res, _next) => {
+    console.error(JSON.stringify({ level: 'error', type: 'unhandled_error', method: req.method, path: req.path, message: err.message }));
+    if (process.env.SENTRY_DSN) Sentry.captureException(err);
+    if (res.headersSent) return;
+    res.status(500).json({ error: 'Something went wrong. Please try again.' });
   });
 
   return app;

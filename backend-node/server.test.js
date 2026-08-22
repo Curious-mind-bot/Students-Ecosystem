@@ -291,6 +291,7 @@ test('GET /api/v1/me/profile returns 404 when the account is missing', async () 
 
 test('GET /api/v1/universities/:id passes the nationality filter through to the query', async () => {
   const pool = mockPool((text, params) => {
+    if (/INSERT INTO demand_events/.test(text)) return {};
     assert.match(text, /applicant_country_code = \$2/);
     assert.deepEqual(params, ['1', 'IN']);
     return { rows: [{ university_id: '1', name: 'LMU Munich', country_code: 'DE', programs: [], living_cost_estimates: [], visa_requirements: [], accommodations: [] }] };
@@ -710,4 +711,129 @@ test('POST /api/v1/auth/login returns 401 for an unknown email', async () => {
   });
   assert.equal(response.status, 401);
   server.close();
+});
+
+test('GET /api/v1/sponsored-content returns an empty list when unconfigured', async () => {
+  const originalContent = process.env.SPONSORED_CONTENT_JSON;
+  delete process.env.SPONSORED_CONTENT_JSON;
+  try {
+    const pool = mockPool(() => ({ rows: [] }));
+    const app = createApp({ pool });
+    const server = app.listen(0);
+    const { port } = server.address();
+    const response = await fetch(`http://localhost:${port}/api/v1/sponsored-content`);
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.deepEqual(data, []);
+    server.close();
+  } finally {
+    if (originalContent === undefined) delete process.env.SPONSORED_CONTENT_JSON;
+    else process.env.SPONSORED_CONTENT_JSON = originalContent;
+  }
+});
+
+test('GET /api/v1/sponsored-content filters by country and always attaches a disclosure', async () => {
+  const originalContent = process.env.SPONSORED_CONTENT_JSON;
+  process.env.SPONSORED_CONTENT_JSON = JSON.stringify([
+    { id: 'sp1', sponsorName: 'Acme Test Prep', headline: 'Prep for your language test', linkUrl: 'https://example.com/acme', countryCode: 'DE' },
+    { id: 'sp2', sponsorName: 'Global Insurance Co', headline: 'Student health cover', linkUrl: 'https://example.com/global' },
+  ]);
+  try {
+    const pool = mockPool(() => ({ rows: [] }));
+    const app = createApp({ pool });
+    const server = app.listen(0);
+    const { port } = server.address();
+    const deResponse = await fetch(`http://localhost:${port}/api/v1/sponsored-content?countryCode=de`);
+    const deData = await deResponse.json();
+    assert.equal(deData.length, 2);
+    assert.ok(deData.every((item) => item.disclosure.includes('Sponsored')));
+    const nlResponse = await fetch(`http://localhost:${port}/api/v1/sponsored-content?countryCode=nl`);
+    const nlData = await nlResponse.json();
+    assert.equal(nlData.length, 1);
+    assert.equal(nlData[0].id, 'sp2');
+    server.close();
+  } finally {
+    if (originalContent === undefined) delete process.env.SPONSORED_CONTENT_JSON;
+    else process.env.SPONSORED_CONTENT_JSON = originalContent;
+  }
+});
+
+test('GET /api/v1/universities/:id records an anonymous demand event on a successful lookup', async () => {
+  let insertParams = null;
+  const pool = mockPool((text, params) => {
+    if (/INSERT INTO demand_events/.test(text)) {
+      assert.match(text, /'UNIVERSITY_VIEW'/);
+      insertParams = params;
+      return {};
+    }
+    return { rows: [{ university_id: 'u1', name: 'LMU Munich', country_code: 'DE', programs: [], living_cost_estimates: [], visa_requirements: [], accommodations: [] }] };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/universities/u1`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(insertParams.slice(1), ['u1', 'DE']);
+  server.close();
+});
+
+test('GET /api/v1/analytics/demand rejects a missing or unknown API key', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const noKeyResponse = await fetch(`http://localhost:${port}/api/v1/analytics/demand`);
+  assert.equal(noKeyResponse.status, 401);
+  const wrongKeyResponse = await fetch(`http://localhost:${port}/api/v1/analytics/demand`, { headers: { 'x-institute-api-key': 'not-a-real-key' } });
+  assert.equal(wrongKeyResponse.status, 401);
+  server.close();
+});
+
+test('GET /api/v1/analytics/demand scopes results to the key\'s own university only', async () => {
+  const originalKeys = process.env.INSTITUTE_ANALYTICS_KEYS_JSON;
+  process.env.INSTITUTE_ANALYTICS_KEYS_JSON = JSON.stringify([{ apiKey: 'test-key-1', universityId: 'u1' }]);
+  try {
+    const pool = mockPool((text, params) => {
+      assert.match(text, /WHERE university_id = \$1/);
+      assert.deepEqual(params, ['u1']);
+      return { rows: [{ event_type: 'UNIVERSITY_VIEW', day: '2026-08-20', view_count: 3 }] };
+    });
+    const app = createApp({ pool });
+    const server = app.listen(0);
+    const { port } = server.address();
+    const response = await fetch(`http://localhost:${port}/api/v1/analytics/demand`, { headers: { 'x-institute-api-key': 'test-key-1' } });
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.universityId, 'u1');
+    assert.equal(data.events[0].view_count, 3);
+    server.close();
+  } finally {
+    if (originalKeys === undefined) delete process.env.INSTITUTE_ANALYTICS_KEYS_JSON;
+    else process.env.INSTITUTE_ANALYTICS_KEYS_JSON = originalKeys;
+  }
+});
+
+test('auth endpoints are rate-limited per window', async () => {
+  const originalMax = process.env.AUTH_RATE_LIMIT_MAX;
+  process.env.AUTH_RATE_LIMIT_MAX = '2';
+  try {
+    const pool = mockPool(() => ({ rows: [] }));
+    const app = createApp({ pool });
+    const server = app.listen(0);
+    const { port } = server.address();
+    const attempt = () => fetch(`http://localhost:${port}/api/v1/auth/login`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'x@example.com', password: 'wrong-password' }),
+    });
+    assert.equal((await attempt()).status, 401);
+    assert.equal((await attempt()).status, 401);
+    const third = await attempt();
+    assert.equal(third.status, 429);
+    const body = await third.json();
+    assert.match(body.error, /too many attempts/i);
+    server.close();
+  } finally {
+    if (originalMax === undefined) delete process.env.AUTH_RATE_LIMIT_MAX;
+    else process.env.AUTH_RATE_LIMIT_MAX = originalMax;
+  }
 });

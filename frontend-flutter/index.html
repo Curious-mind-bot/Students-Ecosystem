@@ -235,6 +235,7 @@
                     <input id="university-country" type="text" maxlength="2" placeholder="e.g. DE">
                 </div>
                 <button class="btn" type="button" onclick="searchUniversities()" data-i18n="search">Search</button>
+                <div id="sponsored-slot" aria-live="polite" style="margin-top:12px"></div>
                 <div id="university-results" aria-live="polite" style="margin-top:12px"></div>
                 <div id="program-details" aria-live="polite" style="margin-top:12px;font-size:.8rem;color:#cbd5e1;line-height:1.5"></div>
             </div>
@@ -339,6 +340,13 @@
             </div>
 
             <div class="card">
+                <div class="card-title" data-i18n="card_partners">Trusted Partners</div>
+                <p style="font-size:.8rem;color:#cbd5e1;line-height:1.4" data-i18n="partners_disclaimer">Optional, clearly-labeled partner services (e.g. visa consultants, test prep). Students-Ecosystem is free for students — we may earn a commission if you choose a partner, at no extra cost to you. Using one is always optional.</p>
+                <button class="btn" type="button" onclick="loadPartners()" data-i18n="refresh">Refresh</button>
+                <div id="partners-list" aria-live="polite" style="margin-top:12px;font-size:.8rem;color:#cbd5e1;line-height:1.5"></div>
+            </div>
+
+            <div class="card">
                 <div class="card-title" data-i18n="card_recommendation">Recommendation request</div>
                 <div class="input-group">
                     <label for="professor-name">Professor Name</label>
@@ -385,6 +393,8 @@
           card_statement: 'Statement readiness check', review_statement: 'Review statement',
           save: 'Save', update: 'Update', add: 'Add', remove: 'Remove',
           check_eligibility: 'Check my eligibility & cost', add_to_applications: 'Add to my applications', save_deadline: 'Save deadline',
+          card_partners: 'Trusted Partners', partners_disclaimer: "Optional, clearly-labeled partner services (e.g. visa consultants, test prep). Students-Ecosystem is free for students — we may earn a commission if you choose a partner, at no extra cost to you. Using one is always optional.",
+          continue_to_partner: 'Continue to partner', no_partners_configured: 'No partners configured yet.',
         },
         fr: {
           app_title: 'Students-Ecosystem', language_label: 'Langue', currency_label: 'Afficher les coûts en', skip_link: 'Aller au contenu principal',
@@ -399,6 +409,8 @@
           card_statement: 'Vérification de la lettre de motivation', review_statement: 'Vérifier la lettre',
           save: 'Enregistrer', update: 'Mettre à jour', add: 'Ajouter', remove: 'Supprimer',
           check_eligibility: 'Vérifier mon éligibilité et le coût', add_to_applications: 'Ajouter à mes candidatures', save_deadline: "Enregistrer l'échéance",
+          card_partners: 'Partenaires de confiance', partners_disclaimer: "Services partenaires optionnels et clairement identifiés (ex. consultants visa, préparation aux tests). Students-Ecosystem est gratuit pour les étudiants — nous pouvons toucher une commission si vous choisissez un partenaire, sans coût supplémentaire pour vous. Leur utilisation reste toujours facultative.",
+          continue_to_partner: 'Continuer vers le partenaire', no_partners_configured: 'Aucun partenaire configuré pour le moment.',
         },
         ar: {
           app_title: 'Students-Ecosystem', language_label: 'اللغة', currency_label: 'عرض التكاليف بعملة', skip_link: 'الانتقال إلى المحتوى الرئيسي',
@@ -413,6 +425,8 @@
           card_statement: 'مراجعة جاهزية خطاب الدافع', review_statement: 'مراجعة الخطاب',
           save: 'حفظ', update: 'تحديث', add: 'إضافة', remove: 'إزالة',
           check_eligibility: 'تحقق من أهليتي والتكلفة', add_to_applications: 'أضف إلى طلباتي', save_deadline: 'حفظ الموعد النهائي',
+          card_partners: 'شركاء موثوقون', partners_disclaimer: 'خدمات شريكة اختيارية وموضحة بشكل واضح (مثل مستشاري التأشيرات والتحضير للاختبارات). تطبيق Students-Ecosystem مجاني للطلاب دائمًا — قد نحصل على عمولة إذا اخترت أحد الشركاء، دون أي تكلفة إضافية عليك. استخدام أي شريك اختياري تمامًا.',
+          continue_to_partner: 'المتابعة إلى الشريك', no_partners_configured: 'لا يوجد شركاء مُعدّون حتى الآن.',
         },
         es: {
           app_title: 'Students-Ecosystem', language_label: 'Idioma', currency_label: 'Mostrar costos en', skip_link: 'Saltar al contenido principal',
@@ -427,6 +441,8 @@
           card_statement: 'Revisión de la carta de motivación', review_statement: 'Revisar la carta',
           save: 'Guardar', update: 'Actualizar', add: 'Añadir', remove: 'Eliminar',
           check_eligibility: 'Verificar mi elegibilidad y costo', add_to_applications: 'Añadir a mis solicitudes', save_deadline: 'Guardar fecha límite',
+          card_partners: 'Socios de confianza', partners_disclaimer: 'Servicios de socios opcionales y claramente etiquetados (p. ej. asesores de visado, preparación de exámenes). Students-Ecosystem es gratuito para los estudiantes — podemos recibir una comisión si eliges un socio, sin costo adicional para ti. Usar un socio siempre es opcional.',
+          continue_to_partner: 'Continuar con el socio', no_partners_configured: 'Aún no hay socios configurados.',
         },
       };
 
@@ -662,12 +678,39 @@
           : 'Could not load a live exchange rate — amounts will stay in EUR.';
       }
 
+      function renderSponsoredContent(items) {
+        if (!items.length) return '';
+        return items.map((ad) => `
+          <div class="card" style="margin-bottom:8px;border-color:#fbbf24">
+            <div style="font-size:.7rem;color:#fbbf24;font-weight:bold;letter-spacing:.5px;text-transform:uppercase">Sponsored</div>
+            <div style="font-weight:bold">${escapeHtml(ad.headline)}</div>
+            <div style="font-size:.8rem;color:#94a3b8">${escapeHtml(ad.sponsorName)}</div>
+            ${ad.body ? `<div style="font-size:.8rem;color:#cbd5e1">${escapeHtml(ad.body)}</div>` : ''}
+            <a href="${escapeHtml(ad.linkUrl)}" target="_blank" rel="noopener sponsored" style="color:#38bdf8;font-size:.8rem">Learn more</a>
+            <div style="font-size:.7rem;color:#94a3b8;margin-top:4px">${escapeHtml(ad.disclosure)}</div>
+          </div>`).join('');
+      }
+
+      async function loadSponsoredContent(countryCode) {
+        const slot = document.getElementById('sponsored-slot');
+        if (!slot) return;
+        try {
+          const params = countryCode ? `?countryCode=${encodeURIComponent(countryCode)}` : '';
+          const response = await fetch(`/api/v1/sponsored-content${params}`);
+          const data = await response.json();
+          slot.innerHTML = response.ok ? renderSponsoredContent(data) : '';
+        } catch (_error) {
+          slot.innerHTML = '';
+        }
+      }
+
       async function searchUniversities() {
         const search = document.getElementById('university-search').value;
         const country = document.getElementById('university-country').value;
         const resultsEl = document.getElementById('university-results');
         document.getElementById('program-details').innerHTML = '';
         resultsEl.textContent = 'Searching…';
+        loadSponsoredContent(country);
         const params = new URLSearchParams();
         if (search) params.set('search', search);
         if (country) params.set('country', country);
@@ -683,6 +726,45 @@
             </div>`).join('');
         } catch (error) {
           resultsEl.textContent = error.message;
+        }
+      }
+
+      function renderPartner(p) {
+        return `
+          <div style="margin-bottom:10px;border-top:1px solid #334155;padding-top:8px">
+            <div style="font-weight:bold">${escapeHtml(p.name)}</div>
+            <div style="font-size:.8rem;color:#94a3b8">${escapeHtml(p.category)}</div>
+            ${p.description ? `<div>${escapeHtml(p.description)}</div>` : ''}
+            <div style="color:#94a3b8;font-size:.75rem;margin-top:4px">${escapeHtml(p.affiliateDisclosure)}</div>
+            ${getToken() ? `<button class="btn" type="button" onclick="continueToPartner('${p.id}')">${t('continue_to_partner')}</button>` : ''}
+          </div>`;
+      }
+
+      async function loadPartners() {
+        const listEl = document.getElementById('partners-list');
+        listEl.textContent = 'Loading…';
+        try {
+          const response = await fetch('/api/v1/partners');
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Could not load partners.');
+          listEl.innerHTML = data.length ? data.map((p) => renderPartner(p)).join('') : t('no_partners_configured');
+        } catch (error) {
+          listEl.textContent = error.message;
+        }
+      }
+
+      async function continueToPartner(partnerId) {
+        const token = getToken();
+        if (!token) { alert('Please log in first.'); return; }
+        try {
+          const response = await fetch(`/api/v1/partners/${partnerId}/continue`, {
+            method: 'POST', headers: { Authorization: `Bearer ${token}` },
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Could not continue to this partner.');
+          window.open(data.redirectUrl, '_blank', 'noopener');
+        } catch (error) {
+          alert(error.message);
         }
       }
 
