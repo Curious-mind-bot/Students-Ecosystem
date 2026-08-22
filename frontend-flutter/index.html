@@ -176,7 +176,19 @@
                 </div>
                 <button class="btn" type="button" onclick="registerAccount()" data-i18n="register">Register</button>
                 <button class="btn" type="button" onclick="loginAccount()" data-i18n="login">Log in</button>
+                <button class="btn" type="button" style="background-color:transparent;color:#94a3b8;font-weight:normal" onclick="requestPasswordReset()" data-i18n="forgot_password">Forgot password?</button>
                 <div id="account-status" role="status" aria-live="polite" style="margin-top:8px;font-size:.8rem;color:#cbd5e1"></div>
+                <div id="reset-password-section" style="display:none;margin-top:8px;border-top:1px solid #334155;padding-top:8px">
+                    <div class="input-group">
+                        <label for="reset-new-password" data-i18n="new_password_label">New password</label>
+                        <input id="reset-new-password" type="password" placeholder="At least 8 characters">
+                    </div>
+                    <button class="btn" type="button" onclick="confirmPasswordReset()" data-i18n="set_new_password">Set new password</button>
+                </div>
+                <div style="margin-top:8px;border-top:1px solid #334155;padding-top:8px">
+                    <button class="btn" type="button" onclick="exportMyData()" data-i18n="export_my_data">Export my data</button>
+                    <button class="btn" type="button" style="background-color:#7f1d1d" onclick="deleteMyAccount()" data-i18n="delete_my_account">Delete my account</button>
+                </div>
             </div>
 
             <div class="card">
@@ -395,6 +407,8 @@
           check_eligibility: 'Check my eligibility & cost', add_to_applications: 'Add to my applications', save_deadline: 'Save deadline',
           card_partners: 'Trusted Partners', partners_disclaimer: "Optional, clearly-labeled partner services (e.g. visa consultants, test prep). Students-Ecosystem is free for students — we may earn a commission if you choose a partner, at no extra cost to you. Using one is always optional.",
           continue_to_partner: 'Continue to partner', no_partners_configured: 'No partners configured yet.',
+          forgot_password: 'Forgot password?', new_password_label: 'New password', set_new_password: 'Set new password',
+          export_my_data: 'Export my data', delete_my_account: 'Delete my account',
         },
         fr: {
           app_title: 'Students-Ecosystem', language_label: 'Langue', currency_label: 'Afficher les coûts en', skip_link: 'Aller au contenu principal',
@@ -411,6 +425,8 @@
           check_eligibility: 'Vérifier mon éligibilité et le coût', add_to_applications: 'Ajouter à mes candidatures', save_deadline: "Enregistrer l'échéance",
           card_partners: 'Partenaires de confiance', partners_disclaimer: "Services partenaires optionnels et clairement identifiés (ex. consultants visa, préparation aux tests). Students-Ecosystem est gratuit pour les étudiants — nous pouvons toucher une commission si vous choisissez un partenaire, sans coût supplémentaire pour vous. Leur utilisation reste toujours facultative.",
           continue_to_partner: 'Continuer vers le partenaire', no_partners_configured: 'Aucun partenaire configuré pour le moment.',
+          forgot_password: 'Mot de passe oublié ?', new_password_label: 'Nouveau mot de passe', set_new_password: 'Définir le nouveau mot de passe',
+          export_my_data: 'Exporter mes données', delete_my_account: 'Supprimer mon compte',
         },
         ar: {
           app_title: 'Students-Ecosystem', language_label: 'اللغة', currency_label: 'عرض التكاليف بعملة', skip_link: 'الانتقال إلى المحتوى الرئيسي',
@@ -427,6 +443,8 @@
           check_eligibility: 'تحقق من أهليتي والتكلفة', add_to_applications: 'أضف إلى طلباتي', save_deadline: 'حفظ الموعد النهائي',
           card_partners: 'شركاء موثوقون', partners_disclaimer: 'خدمات شريكة اختيارية وموضحة بشكل واضح (مثل مستشاري التأشيرات والتحضير للاختبارات). تطبيق Students-Ecosystem مجاني للطلاب دائمًا — قد نحصل على عمولة إذا اخترت أحد الشركاء، دون أي تكلفة إضافية عليك. استخدام أي شريك اختياري تمامًا.',
           continue_to_partner: 'المتابعة إلى الشريك', no_partners_configured: 'لا يوجد شركاء مُعدّون حتى الآن.',
+          forgot_password: 'هل نسيت كلمة المرور؟', new_password_label: 'كلمة المرور الجديدة', set_new_password: 'تعيين كلمة المرور الجديدة',
+          export_my_data: 'تصدير بياناتي', delete_my_account: 'حذف حسابي',
         },
         es: {
           app_title: 'Students-Ecosystem', language_label: 'Idioma', currency_label: 'Mostrar costos en', skip_link: 'Saltar al contenido principal',
@@ -443,6 +461,8 @@
           check_eligibility: 'Verificar mi elegibilidad y costo', add_to_applications: 'Añadir a mis solicitudes', save_deadline: 'Guardar fecha límite',
           card_partners: 'Socios de confianza', partners_disclaimer: 'Servicios de socios opcionales y claramente etiquetados (p. ej. asesores de visado, preparación de exámenes). Students-Ecosystem es gratuito para los estudiantes — podemos recibir una comisión si eliges un socio, sin costo adicional para ti. Usar un socio siempre es opcional.',
           continue_to_partner: 'Continuar con el socio', no_partners_configured: 'Aún no hay socios configurados.',
+          forgot_password: '¿Olvidaste tu contraseña?', new_password_label: 'Nueva contraseña', set_new_password: 'Establecer nueva contraseña',
+          export_my_data: 'Exportar mis datos', delete_my_account: 'Eliminar mi cuenta',
         },
       };
 
@@ -467,6 +487,8 @@
         try { stored = localStorage.getItem('se_lang'); } catch (_error) { /* ignore */ }
         applyLanguage(stored || 'en');
       })();
+
+      initPasswordResetFromUrl();
 
       function showLORNotice() {
         alert('The request workflow is intentionally disabled until the email service and secure upload portal are configured. No message has been sent.');
@@ -610,6 +632,99 @@
           await loadProfile();
         } catch (error) {
           statusEl.textContent = error.message;
+        }
+      }
+
+      let pendingResetToken = null;
+
+      function initPasswordResetFromUrl() {
+        const params = new URLSearchParams(window.location.search);
+        const resetToken = params.get('resetToken');
+        if (!resetToken) return;
+        pendingResetToken = resetToken;
+        const section = document.getElementById('reset-password-section');
+        if (section) section.style.display = 'block';
+      }
+
+      async function requestPasswordReset() {
+        const email = prompt('Enter the email address for your account:');
+        if (!email) return;
+        const statusEl = document.getElementById('account-status');
+        statusEl.textContent = 'Sending…';
+        try {
+          const response = await fetch('/api/v1/auth/password-reset/request', {
+            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({email}),
+          });
+          const data = await response.json();
+          statusEl.textContent = data.message || 'If an account with that email exists, a reset link has been sent.';
+        } catch (error) {
+          statusEl.textContent = error.message;
+        }
+      }
+
+      async function confirmPasswordReset() {
+        const statusEl = document.getElementById('account-status');
+        const newPassword = document.getElementById('reset-new-password').value;
+        if (!pendingResetToken) { statusEl.textContent = 'No reset link token found.'; return; }
+        statusEl.textContent = 'Updating…';
+        try {
+          const response = await fetch('/api/v1/auth/password-reset/confirm', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({token: pendingResetToken, newPassword}),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Could not update your password.');
+          statusEl.textContent = data.message;
+          document.getElementById('reset-password-section').style.display = 'none';
+          pendingResetToken = null;
+          window.history.replaceState(null, '', window.location.pathname);
+        } catch (error) {
+          statusEl.textContent = error.message;
+        }
+      }
+
+      async function exportMyData() {
+        const token = getToken();
+        if (!token) { alert('Please log in first.'); return; }
+        try {
+          const response = await fetch('/api/v1/me/export', { headers: { Authorization: `Bearer ${token}` } });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Could not export your data.');
+          const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = 'students-ecosystem-my-data.json';
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          URL.revokeObjectURL(url);
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      async function deleteMyAccount() {
+        const token = getToken();
+        if (!token) { alert('Please log in first.'); return; }
+        if (!confirm('This permanently deletes your account and every application/document you track. This cannot be undone. Continue?')) return;
+        const password = prompt('Enter your current password to confirm:');
+        if (!password) return;
+        try {
+          const response = await fetch('/api/v1/me', {
+            method: 'DELETE', headers: {'Content-Type': 'application/json', Authorization: `Bearer ${token}`},
+            body: JSON.stringify({password}),
+          });
+          if (response.status === 204) {
+            try { localStorage.removeItem('se_token'); } catch (_error) { /* ignore */ }
+            alert('Your account has been deleted.');
+            window.location.reload();
+            return;
+          }
+          const data = await response.json();
+          throw new Error(data.error || 'Could not delete your account.');
+        } catch (error) {
+          alert(error.message);
         }
       }
 

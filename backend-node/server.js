@@ -192,6 +192,50 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
     return res.json({ token: signToken(rows[0].user_id), user: { userId: rows[0].user_id, fullName: rows[0].full_name, email } });
   });
 
+  app.post('/api/v1/auth/password-reset/request', authRateLimiter, async (req, res) => {
+    const { email } = req.body || {};
+    if (!email) return res.status(400).json({ error: 'email is required.' });
+    const genericResponse = { message: 'If an account with that email exists, a password reset link has been sent.' };
+    try {
+      const { rows } = await pool.query('SELECT user_id, full_name FROM users WHERE email = $1', [email]);
+      if (rows[0]) {
+        const transporter = mailer || createMailer();
+        requireEnv('PUBLIC_APP_URL');
+        const token = crypto.randomBytes(32).toString('base64url');
+        const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+        const expiresAt = new Date(Date.now() + 60 * 60 * 1000);
+        await pool.query(
+          'INSERT INTO password_reset_tokens (token_id, user_id, token_hash, expires_at) VALUES ($1, $2, $3, $4)',
+          [crypto.randomUUID(), rows[0].user_id, tokenHash, expiresAt],
+        );
+        const url = new URL('/', process.env.PUBLIC_APP_URL);
+        url.searchParams.set('resetToken', token);
+        await transporter.sendMail({
+          from: process.env.EMAIL_FROM || process.env.EMAIL_USER, to: email,
+          subject: 'Reset your Students-Ecosystem password',
+          text: `Hi ${rows[0].full_name},\n\nUse this link within 1 hour to reset your password: ${url.toString()}\n\nIf you didn't request this, you can ignore this email.`,
+        });
+      }
+    } catch (_error) { /* never leak account existence or infra/config errors to an unauthenticated caller */ }
+    return res.json(genericResponse);
+  });
+
+  app.post('/api/v1/auth/password-reset/confirm', authRateLimiter, async (req, res) => {
+    const { token, newPassword } = req.body || {};
+    if (typeof token !== 'string' || !token || typeof newPassword !== 'string' || newPassword.length < 8) {
+      return res.status(400).json({ error: 'A valid token and a password of at least 8 characters are required.' });
+    }
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const { rows } = await pool.query(
+      `SELECT token_id, user_id FROM password_reset_tokens WHERE token_hash = $1 AND consumed_at IS NULL AND expires_at > now()`,
+      [tokenHash],
+    );
+    if (!rows[0]) return res.status(400).json({ error: 'This reset link is invalid or has expired.' });
+    await pool.query('UPDATE users SET password_hash = $1, updated_at = now() WHERE user_id = $2', [hashPassword(newPassword), rows[0].user_id]);
+    await pool.query('UPDATE password_reset_tokens SET consumed_at = now() WHERE token_id = $1', [rows[0].token_id]);
+    return res.status(200).json({ message: 'Password updated. You can now log in with your new password.' });
+  });
+
   app.post('/api/v1/readiness/sop', authRequired, async (req, res) => {
     const { statement } = req.body || {};
     if (typeof statement !== 'string' || statement.trim().length < 20 || statement.length > 15000) {
@@ -565,6 +609,45 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
       if (error.code === '23505') return res.status(409).json({ error: 'That email is already in use by another account.' });
       throw error;
     }
+  });
+
+  app.get('/api/v1/me/export', authRequired, async (req, res) => {
+    const { rows: userRows } = await pool.query(
+      'SELECT user_id, full_name, email, passport_country, cgpa_percentage, liquid_funds_eur, created_at FROM users WHERE user_id = $1',
+      [req.user.id],
+    );
+    if (!userRows[0]) return res.status(404).json({ error: 'Account not found.' });
+    const [{ rows: applications }, { rows: personalDocuments }, { rows: lorRequests }, { rows: partnerReferrals }] = await Promise.all([
+      pool.query(
+        `SELECT a.*, COALESCE(json_agg(d) FILTER (WHERE d.document_id IS NOT NULL), '[]') AS documents
+         FROM applications_tracker a LEFT JOIN application_documents d ON d.application_id = a.application_id
+         WHERE a.user_id = $1 GROUP BY a.application_id`, [req.user.id],
+      ),
+      pool.query('SELECT * FROM student_documents WHERE user_id = $1', [req.user.id]),
+      pool.query(
+        'SELECT request_id, professor_name, professor_email, university_affiliation, request_status, created_at FROM professor_lor_requests WHERE user_id = $1',
+        [req.user.id],
+      ),
+      pool.query('SELECT conversion_id, partner_id, partner_category, conversion_status, created_at FROM partner_conversions WHERE user_id = $1', [req.user.id]),
+    ]);
+    return res.json({
+      exportedAt: new Date().toISOString(),
+      profile: userRows[0],
+      applications,
+      personalDocuments,
+      referenceRequests: lorRequests,
+      partnerReferrals,
+    });
+  });
+
+  app.delete('/api/v1/me', authRequired, async (req, res) => {
+    const { password } = req.body || {};
+    if (typeof password !== 'string' || !password) return res.status(400).json({ error: 'Your current password is required to delete your account.' });
+    const { rows } = await pool.query('SELECT password_hash FROM users WHERE user_id = $1', [req.user.id]);
+    if (!rows[0]) return res.status(404).json({ error: 'Account not found.' });
+    if (!verifyPassword(password, rows[0].password_hash)) return res.status(401).json({ error: 'Incorrect password.' });
+    await pool.query('DELETE FROM users WHERE user_id = $1', [req.user.id]);
+    return res.status(204).end();
   });
 
   app.get('/api/v1/applications', authRequired, async (req, res) => {

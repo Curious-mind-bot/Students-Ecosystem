@@ -713,6 +713,186 @@ test('POST /api/v1/auth/login returns 401 for an unknown email', async () => {
   server.close();
 });
 
+test('POST /api/v1/auth/password-reset/request sends no email and gives a generic message for an unknown address', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const sent = [];
+  const mailer = { sendMail: async (message) => { sent.push(message); } };
+  const app = createApp({ pool, mailer });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/auth/password-reset/request`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'unknown@example.com' }),
+  });
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.match(data.message, /if an account with that email exists/i);
+  assert.equal(sent.length, 0);
+  server.close();
+});
+
+test('POST /api/v1/auth/password-reset/request emails a reset link for a known address', async () => {
+  const originalUrl = process.env.PUBLIC_APP_URL;
+  process.env.PUBLIC_APP_URL = 'https://students-ecosystem.example';
+  try {
+    const pool = mockPool((text) => {
+      if (/FROM users WHERE email/.test(text)) return { rows: [{ user_id: 'u1', full_name: 'Jane Student' }] };
+      return {};
+    });
+    const sent = [];
+    const mailer = { sendMail: async (message) => { sent.push(message); } };
+    const app = createApp({ pool, mailer });
+    const server = app.listen(0);
+    const { port } = server.address();
+    const response = await fetch(`http://localhost:${port}/api/v1/auth/password-reset/request`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'jane@example.com' }),
+    });
+    assert.equal(response.status, 200);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].to, 'jane@example.com');
+    assert.match(sent[0].text, /resetToken=/);
+    server.close();
+  } finally {
+    if (originalUrl === undefined) delete process.env.PUBLIC_APP_URL;
+    else process.env.PUBLIC_APP_URL = originalUrl;
+  }
+});
+
+test('POST /api/v1/auth/password-reset/confirm rejects a short new password', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/auth/password-reset/confirm`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: 'abc', newPassword: 'short' }),
+  });
+  assert.equal(response.status, 400);
+  server.close();
+});
+
+test('POST /api/v1/auth/password-reset/confirm rejects an invalid or expired token', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/auth/password-reset/confirm`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: 'not-a-real-token', newPassword: 'newpassword123' }),
+  });
+  const data = await response.json();
+  assert.equal(response.status, 400);
+  assert.match(data.error, /invalid or has expired/i);
+  server.close();
+});
+
+test('POST /api/v1/auth/password-reset/confirm updates the password for a valid token', async () => {
+  const queries = [];
+  const pool = mockPool((text, params) => {
+    queries.push(text);
+    if (/FROM password_reset_tokens WHERE token_hash/.test(text)) return { rows: [{ token_id: 't1', user_id: 'u1' }] };
+    if (/UPDATE users SET password_hash/.test(text)) { assert.equal(params[1], 'u1'); return {}; }
+    if (/UPDATE password_reset_tokens SET consumed_at/.test(text)) { assert.equal(params[0], 't1'); return {}; }
+    return {};
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/auth/password-reset/confirm`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token: 'a-real-looking-token', newPassword: 'newpassword123' }),
+  });
+  assert.equal(response.status, 200);
+  assert.ok(queries.some((text) => /UPDATE users SET password_hash/.test(text)));
+  assert.ok(queries.some((text) => /UPDATE password_reset_tokens SET consumed_at/.test(text)));
+  server.close();
+});
+
+test('GET /api/v1/me/export returns 404 when the account is missing', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/me/export`, { headers: { Authorization: `Bearer ${token}` } });
+  assert.equal(response.status, 404);
+  server.close();
+});
+
+test('GET /api/v1/me/export bundles the account\'s own applications, documents, and referrals', async () => {
+  const pool = mockPool((text) => {
+    if (/FROM users WHERE user_id/.test(text)) return { rows: [{ user_id: 'u1', full_name: 'Jane Student', email: 'jane@example.com' }] };
+    if (/FROM applications_tracker/.test(text)) return { rows: [{ application_id: 'a1', program_title: 'M.Sc. CS' }] };
+    if (/FROM student_documents/.test(text)) return { rows: [{ student_document_id: 'd1', document_type: 'IELTS' }] };
+    if (/FROM professor_lor_requests/.test(text)) return { rows: [] };
+    if (/FROM partner_conversions/.test(text)) return { rows: [] };
+    return { rows: [] };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/me/export`, { headers: { Authorization: `Bearer ${token}` } });
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data.profile.email, 'jane@example.com');
+  assert.equal(data.applications[0].program_title, 'M.Sc. CS');
+  assert.equal(data.personalDocuments[0].document_type, 'IELTS');
+  server.close();
+});
+
+test('DELETE /api/v1/me requires the current password in the body', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/me`, {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }, body: JSON.stringify({}),
+  });
+  assert.equal(response.status, 400);
+  server.close();
+});
+
+test('DELETE /api/v1/me rejects an incorrect password and does not delete the account', async () => {
+  const storedHash = hashPassword('correct-password');
+  let deleteCalled = false;
+  const pool = mockPool((text) => {
+    if (/DELETE FROM users/.test(text)) { deleteCalled = true; return {}; }
+    return { rows: [{ password_hash: storedHash }] };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/me`, {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ password: 'wrong-password' }),
+  });
+  assert.equal(response.status, 401);
+  assert.equal(deleteCalled, false);
+  server.close();
+});
+
+test('DELETE /api/v1/me deletes the account when the password is correct', async () => {
+  const storedHash = hashPassword('correct-password');
+  const pool = mockPool((text) => {
+    if (/DELETE FROM users/.test(text)) return {};
+    return { rows: [{ password_hash: storedHash }] };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/me`, {
+    method: 'DELETE', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ password: 'correct-password' }),
+  });
+  assert.equal(response.status, 204);
+  server.close();
+});
+
 test('GET /api/v1/sponsored-content returns an empty list when unconfigured', async () => {
   const originalContent = process.env.SPONSORED_CONTENT_JSON;
   delete process.env.SPONSORED_CONTENT_JSON;

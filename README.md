@@ -4,7 +4,7 @@ A safety-first, end-to-end ecosystem for planning an international study applica
 
 ## Current MVP
 
-- **Account** — register/log in (email + password, JWT-based sessions).
+- **Account** — register/log in (email + password, JWT-based sessions), forgot-password recovery via a one-time emailed link, plus self-service data export (`GET /api/v1/me/export`) and account deletion (`DELETE /api/v1/me`, password-confirmed).
 - **University & programme search** — browse universities and programmes, with admission requirements attached.
 - **Scholarships** — programme-specific, university-wide, or country-wide funding.
 - **Fees & cost of living** — application/tuition fees per programme, plus country/university cost-of-living estimates.
@@ -80,3 +80,4 @@ The example values above are placeholders — no real partner, sponsor, or insti
 - **Rate limiting** — `/api/v1/auth/register` and `/api/v1/auth/login` are limited (default 20 requests / 15 minutes per IP; tune with `AUTH_RATE_LIMIT_MAX`).
 - **Error tracking** — set `SENTRY_DSN` to report unhandled errors to Sentry (optional; every request is always logged as structured JSON to stdout regardless).
 - **Staleness report** — `node backend-node/scripts/staleness-report.js` scans every sourced table (admission requirements, scholarships, fees, living costs, visa requirements, accommodations, support resources) for rows whose `source_checked_on` is older than `STALENESS_THRESHOLD_MONTHS` (default 6) and exits non-zero if any are found — run it on a schedule to know when seed data needs re-verification.
+- **CI** (`.github/workflows/test.yml`) — every push/PR to `main` runs the backend test suite, plus a separate job that loads `database/schema.sql` into a real Postgres service container and checks that every `academic_programs` row has an `admission_requirements` row (the exact class of gap a manual seed-data batch missed earlier in this project's history).

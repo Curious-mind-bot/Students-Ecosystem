@@ -1,0 +1,72 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend-node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: backend-node/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies
+        working-directory: backend-node
+        run: npm ci
+
+      - name: Run tests
+        working-directory: backend-node
+        env:
+          JWT_SECRET: ci-test-secret
+        run: npm test
+
+  schema:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: students_ecosystem
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load schema.sql
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -d students_ecosystem -f database/schema.sql
+
+      - name: Every academic programme must have exactly one admission-requirements row
+        env:
+          PGPASSWORD: postgres
+        run: |
+          missing=$(psql -h localhost -U postgres -d students_ecosystem -tA -c "
+            SELECT count(*) FROM academic_programs p
+            LEFT JOIN admission_requirements ar ON ar.program_id = p.program_id
+            WHERE ar.requirement_id IS NULL;
+          ")
+          echo "Programmes missing admission requirements: $missing"
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::$missing academic_programs row(s) have no admission_requirements row."
+            exit 1
+          fi

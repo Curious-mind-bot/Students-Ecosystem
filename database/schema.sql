@@ -71,6 +71,15 @@ CREATE TABLE professor_lor_requests (
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+CREATE TABLE password_reset_tokens (
+    token_id UUID PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    token_hash CHAR(64) UNIQUE NOT NULL,
+    expires_at TIMESTAMPTZ NOT NULL,
+    consumed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE partner_conversions (
     conversion_id UUID PRIMARY KEY,
     user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
@@ -87,6 +96,7 @@ CREATE INDEX applications_user_id_idx ON applications_tracker(user_id);
 CREATE INDEX application_documents_application_id_idx ON application_documents(application_id);
 CREATE INDEX student_documents_user_id_idx ON student_documents(user_id);
 CREATE INDEX lor_token_hash_idx ON professor_lor_requests(token_hash);
+CREATE INDEX password_reset_tokens_token_hash_idx ON password_reset_tokens(token_hash);
 
 -- Module: university/college search & admission requirements.
 -- source_url and source_checked_on are NOT NULL: no requirement fact may be
