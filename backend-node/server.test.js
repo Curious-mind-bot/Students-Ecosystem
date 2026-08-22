@@ -392,6 +392,52 @@ test('PATCH /api/v1/applications/:id/status rejects an invalid status', async ()
   server.close();
 });
 
+test('PATCH /api/v1/applications/:id/deadline updates the deadline', async () => {
+  const pool = mockPool((text, params) => {
+    assert.match(text, /deadline_at = \$1::date/);
+    assert.deepEqual(params, ['2026-12-01', 'app1', 'u1']);
+    return { rowCount: 1 };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/applications/app1/deadline`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ deadlineAt: '2026-12-01' }),
+  });
+  assert.equal(response.status, 204);
+  server.close();
+});
+
+test('PATCH /api/v1/applications/:id/deadline returns 404 when the application is missing', async () => {
+  const pool = mockPool(() => ({ rowCount: 0 }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/applications/app1/deadline`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ deadlineAt: '2026-12-01' }),
+  });
+  assert.equal(response.status, 404);
+  server.close();
+});
+
+test('PATCH /api/v1/applications/:id/deadline rejects an invalid date', async () => {
+  const pool = mockPool(() => ({ rowCount: 1 }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/applications/app1/deadline`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ deadlineAt: 'not-a-date' }),
+  });
+  assert.equal(response.status, 400);
+  server.close();
+});
+
 test('POST /api/v1/auth/register creates an account and returns a token', async () => {
   const pool = mockPool(() => ({ rows: [] }));
   const app = createApp({ pool });

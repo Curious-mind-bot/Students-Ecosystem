@@ -446,6 +446,18 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
     return rowCount ? res.status(204).end() : res.status(404).json({ error: 'Application not found.' });
   });
 
+  app.patch('/api/v1/applications/:applicationId/deadline', authRequired, async (req, res) => {
+    const { deadlineAt } = req.body || {};
+    if (deadlineAt !== null && Number.isNaN(Date.parse(deadlineAt))) {
+      return res.status(400).json({ error: 'deadlineAt must be a valid date or null.' });
+    }
+    const { rowCount } = await pool.query(
+      `UPDATE applications_tracker SET deadline_at = $1::date, updated_at = now() WHERE application_id = $2 AND user_id = $3`,
+      [deadlineAt, req.params.applicationId, req.user.id],
+    );
+    return rowCount ? res.status(204).end() : res.status(404).json({ error: 'Application not found.' });
+  });
+
   app.post('/api/v1/lor/requests', authRequired, async (req, res) => {
     const { professorName, professorEmail, universityAffiliation } = req.body || {};
     if (!professorName || !professorEmail || !universityAffiliation) return res.status(400).json({ error: 'Professor name, email, and affiliation are required.' });

@@ -579,6 +579,14 @@
         }
       }
 
+      function renderDeadline(deadlineAt) {
+        if (!deadlineAt) return '<div style="color:#94a3b8">No deadline set</div>';
+        const days = Math.ceil((new Date(deadlineAt) - new Date()) / (1000 * 60 * 60 * 24));
+        const color = days < 0 ? '#f87171' : days <= 7 ? '#f87171' : days <= 30 ? '#fbbf24' : '#cbd5e1';
+        const label = days < 0 ? `${Math.abs(days)} day(s) overdue` : days === 0 ? 'Due today' : `${days} day(s) left`;
+        return `<div style="color:${color};font-weight:bold">Deadline: ${escapeHtml(deadlineAt)} (${label})</div>`;
+      }
+
       function renderApplication(a) {
         const statusOptions = ['DRAFT', 'DOCUMENTS_IN_PROGRESS', 'SUBMITTED', 'OFFER_RECEIVED', 'DECLINED', 'WITHDRAWN'];
         const documents = a.documents || [];
@@ -587,12 +595,18 @@
             <div style="font-weight:bold">${escapeHtml(a.program_title)}</div>
             <div>${escapeHtml(a.university_name)} · ${escapeHtml(a.country_code)}</div>
             <div>Status: ${escapeHtml(a.submission_status)}</div>
+            ${renderDeadline(a.deadline_at)}
             ${documents.length ? `<div>Documents: ${documents.map((d) => `${escapeHtml(d.document_type)} (${escapeHtml(d.status)})`).join(', ')}</div>` : ''}
             <div style="margin-top:6px">
               <select id="status-select-${a.application_id}" aria-label="Application status for ${escapeHtml(a.program_title)}">
                 ${statusOptions.map((s) => `<option value="${s}"${s === a.submission_status ? ' selected' : ''}>${s}</option>`).join('')}
               </select>
               <button class="btn" type="button" onclick="updateApplicationStatus('${a.application_id}')">Update</button>
+            </div>
+            <div style="margin-top:6px">
+              <label for="deadline-input-${a.application_id}" style="font-size:.75rem;color:#94a3b8;display:block;margin-bottom:2px">Set/update deadline</label>
+              <input id="deadline-input-${a.application_id}" type="date" value="${a.deadline_at ? escapeHtml(a.deadline_at).slice(0, 10) : ''}">
+              <button class="btn" type="button" onclick="updateApplicationDeadline('${a.application_id}')">Save deadline</button>
             </div>
           </div>`;
       }
@@ -623,6 +637,23 @@
             body: JSON.stringify({status: select.value}),
           });
           if (!response.ok) { const data = await response.json(); throw new Error(data.error || 'Could not update status.'); }
+          loadApplications();
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      async function updateApplicationDeadline(applicationId) {
+        const token = getToken();
+        const input = document.getElementById(`deadline-input-${applicationId}`);
+        if (!token || !input) return;
+        try {
+          const response = await fetch(`/api/v1/applications/${applicationId}/deadline`, {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`},
+            body: JSON.stringify({deadlineAt: input.value || null}),
+          });
+          if (!response.ok) { const data = await response.json(); throw new Error(data.error || 'Could not update deadline.'); }
           loadApplications();
         } catch (error) {
           alert(error.message);
