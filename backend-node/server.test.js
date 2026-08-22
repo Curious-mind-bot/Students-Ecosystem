@@ -1017,3 +1017,185 @@ test('auth endpoints are rate-limited per window', async () => {
     else process.env.AUTH_RATE_LIMIT_MAX = originalMax;
   }
 });
+
+function withAdminApiKey(fn) {
+  return async () => {
+    const originalKey = process.env.ADMIN_API_KEY;
+    process.env.ADMIN_API_KEY = 'test-admin-key';
+    try {
+      await fn();
+    } finally {
+      if (originalKey === undefined) delete process.env.ADMIN_API_KEY;
+      else process.env.ADMIN_API_KEY = originalKey;
+    }
+  };
+}
+
+test('GET /api/v1/admin/resources rejects a missing or wrong admin key', withAdminApiKey(async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const noKey = await fetch(`http://localhost:${port}/api/v1/admin/resources`);
+  assert.equal(noKey.status, 401);
+  const wrongKey = await fetch(`http://localhost:${port}/api/v1/admin/resources`, { headers: { 'x-admin-api-key': 'nope' } });
+  assert.equal(wrongKey.status, 401);
+  server.close();
+}));
+
+test('GET /api/v1/admin/resources lists every manageable resource', withAdminApiKey(async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/admin/resources`, { headers: { 'x-admin-api-key': 'test-admin-key' } });
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.ok(data.includes('universities'));
+  assert.ok(data.includes('support_resources'));
+  server.close();
+}));
+
+test('GET /api/v1/admin/:resource/_schema describes a resource\'s columns', withAdminApiKey(async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/admin/universities/_schema`, { headers: { 'x-admin-api-key': 'test-admin-key' } });
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data.idColumn, 'university_id');
+  assert.ok(data.columns.includes('country_code'));
+  assert.ok(data.requiredColumns.includes('country_code'));
+  server.close();
+}));
+
+test('GET /api/v1/admin/:resource returns 404 for an unknown resource', withAdminApiKey(async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/admin/not_a_table`, { headers: { 'x-admin-api-key': 'test-admin-key' } });
+  assert.equal(response.status, 404);
+  server.close();
+}));
+
+test('GET /api/v1/admin/:resource lists rows for a known resource', withAdminApiKey(async () => {
+  const pool = mockPool((text) => {
+    assert.match(text, /SELECT \* FROM universities ORDER BY university_id/);
+    return { rows: [{ university_id: '1', name: 'LMU Munich' }] };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/admin/universities`, { headers: { 'x-admin-api-key': 'test-admin-key' } });
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data[0].name, 'LMU Munich');
+  server.close();
+}));
+
+test('POST /api/v1/admin/:resource rejects missing required fields', withAdminApiKey(async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/admin/universities`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-api-key': 'test-admin-key' },
+    body: JSON.stringify({ name: 'New University' }),
+  });
+  const data = await response.json();
+  assert.equal(response.status, 400);
+  assert.match(data.error, /country_code/);
+  server.close();
+}));
+
+test('POST /api/v1/admin/:resource creates a row with a generated id', withAdminApiKey(async () => {
+  let insertText = null;
+  let insertParams = null;
+  const pool = mockPool((text, params) => {
+    insertText = text;
+    insertParams = params;
+    return {};
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/admin/universities`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-api-key': 'test-admin-key' },
+    body: JSON.stringify({ name: 'New University', country_code: 'FR' }),
+  });
+  const data = await response.json();
+  assert.equal(response.status, 201);
+  assert.ok(data.university_id);
+  assert.match(insertText, /INSERT INTO universities \(university_id, name, country_code\)/);
+  assert.equal(insertParams[1], 'New University');
+  assert.equal(insertParams[2], 'FR');
+  server.close();
+}));
+
+test('POST /api/v1/admin/:resource translates a constraint violation into a 400', withAdminApiKey(async () => {
+  const pool = mockPool(() => {
+    const error = new Error('violates check constraint "academic_programs_degree_level_check"');
+    error.code = '23514';
+    error.constraint = 'academic_programs_degree_level_check';
+    error.detail = 'Failing row contains (..., NOT_A_LEVEL, ...).';
+    throw error;
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/admin/academic_programs`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-api-key': 'test-admin-key' },
+    body: JSON.stringify({ university_id: 'u1', title: 'Weird Degree', degree_level: 'NOT_A_LEVEL' }),
+  });
+  const data = await response.json();
+  assert.equal(response.status, 400);
+  assert.match(data.error, /constraint/);
+  server.close();
+}));
+
+test('PATCH /api/v1/admin/:resource/:id updates only the provided fields', withAdminApiKey(async () => {
+  const pool = mockPool((text, params) => {
+    assert.match(text, /UPDATE universities SET city = \$2, updated_at = now\(\) WHERE university_id = \$1/);
+    assert.deepEqual(params, ['u1', 'Berlin']);
+    return { rowCount: 1 };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/admin/universities/u1`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'x-admin-api-key': 'test-admin-key' },
+    body: JSON.stringify({ city: 'Berlin' }),
+  });
+  assert.equal(response.status, 204);
+  server.close();
+}));
+
+test('PATCH /api/v1/admin/:resource/:id returns 404 when not found', withAdminApiKey(async () => {
+  const pool = mockPool(() => ({ rowCount: 0 }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/admin/universities/does-not-exist`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', 'x-admin-api-key': 'test-admin-key' },
+    body: JSON.stringify({ city: 'Berlin' }),
+  });
+  assert.equal(response.status, 404);
+  server.close();
+}));
+
+test('DELETE /api/v1/admin/:resource/:id removes a row', withAdminApiKey(async () => {
+  const pool = mockPool((text) => {
+    assert.match(text, /DELETE FROM universities WHERE university_id = \$1/);
+    return { rowCount: 1 };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/admin/universities/u1`, {
+    method: 'DELETE', headers: { 'x-admin-api-key': 'test-admin-key' },
+  });
+  assert.equal(response.status, 204);
+  server.close();
+}));

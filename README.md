@@ -75,6 +75,22 @@ The app never charges a student. Institutes and sponsors can support it instead,
 
 The example values above are placeholders — no real partner, sponsor, or institute deal is included. An operator fills these in once real agreements exist.
 
+## Admin CMS
+
+Open `/admin.html` (served alongside the main app) to manage sourced content — universities, programmes, admission requirements, scholarships, fees, living costs, visa requirements, accommodations, and support resources — through a UI instead of a hand-written SQL migration. Set `ADMIN_API_KEY` on the server and enter the same value in the page (kept only in that browser tab's `sessionStorage`). Backed by a generic CRUD API:
+
+```
+GET    /api/v1/admin/resources
+GET    /api/v1/admin/:resource
+GET    /api/v1/admin/:resource/_schema
+GET    /api/v1/admin/:resource/:id
+POST   /api/v1/admin/:resource
+PATCH  /api/v1/admin/:resource/:id
+DELETE /api/v1/admin/:resource/:id
+```
+
+Every request is header-gated by `x-admin-api-key`. Postgres still enforces every `NOT NULL`/`CHECK` constraint (e.g. `source_url`/`source_checked_on` being required) — the API just translates a constraint violation into a readable 400 instead of a raw Postgres error.
+
 ## Operations
 
 - **Rate limiting** — `/api/v1/auth/register` and `/api/v1/auth/login` are limited (default 20 requests / 15 minutes per IP; tune with `AUTH_RATE_LIMIT_MAX`).

@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow">
+    <title>Students-Ecosystem — Admin CMS</title>
+    <style>
+        body {
+            background-color: #0f172a;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: #f8fafc;
+            margin: 0;
+            padding: 24px;
+        }
+        h1 { font-size: 1.3rem; color: #38bdf8; margin: 0 0 4px; }
+        p.hint { color: #94a3b8; font-size: .85rem; margin: 0 0 20px; }
+        .card {
+            background-color: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 20px;
+            max-width: 900px;
+        }
+        .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; margin-bottom: 10px; }
+        .field { display: flex; flex-direction: column; gap: 4px; }
+        label { font-size: .75rem; color: #94a3b8; }
+        input, select, textarea {
+            background-color: #0f172a;
+            border: 1px solid #334155;
+            border-radius: 6px;
+            color: white;
+            padding: 8px;
+            font-family: inherit;
+            font-size: .85rem;
+        }
+        button {
+            background-color: #0284c7;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 8px 14px;
+            font-weight: bold;
+            cursor: pointer;
+            font-size: .85rem;
+        }
+        button:hover { background-color: #0369a1; }
+        button.danger { background-color: #7f1d1d; }
+        button.danger:hover { background-color: #991b1b; }
+        button.secondary { background-color: #334155; }
+        table { border-collapse: collapse; width: 100%; font-size: .8rem; }
+        th, td { border-bottom: 1px solid #334155; padding: 6px 8px; text-align: left; vertical-align: top; }
+        th { color: #94a3b8; font-weight: normal; }
+        #status { font-size: .8rem; color: #94a3b8; min-height: 1.2em; margin-top: 8px; }
+        .required-star { color: #f87171; }
+    </style>
+</head>
+<body>
+    <h1>Students-Ecosystem — Admin CMS</h1>
+    <p class="hint">Internal tool for managing sourced content directly against the database — no hand-written SQL migration needed. Requires an admin API key (set via <code>ADMIN_API_KEY</code> on the server).</p>
+
+    <div class="card">
+        <div class="row">
+            <div class="field">
+                <label for="admin-key">Admin API key</label>
+                <input id="admin-key" type="password" style="width:260px">
+            </div>
+            <button type="button" onclick="saveKey()">Save key</button>
+        </div>
+        <div class="row">
+            <div class="field">
+                <label for="resource-select">Resource</label>
+                <select id="resource-select" style="width:260px"></select>
+            </div>
+            <button type="button" onclick="loadResources()">Refresh resource list</button>
+            <button type="button" onclick="loadRows()">Load rows</button>
+            <button type="button" onclick="showCreateForm()">+ New record</button>
+        </div>
+        <div id="status"></div>
+    </div>
+
+    <div class="card" id="form-card" style="display:none">
+        <div id="form-title" style="font-weight:bold;margin-bottom:10px"></div>
+        <div id="form-fields"></div>
+        <button type="button" onclick="submitForm()">Save</button>
+        <button type="button" class="secondary" onclick="hideForm()">Cancel</button>
+        <div id="form-status" style="font-size:.8rem;color:#94a3b8;margin-top:8px"></div>
+    </div>
+
+    <div class="card">
+        <table id="rows-table">
+            <thead><tr id="rows-head"></tr></thead>
+            <tbody id="rows-body"></tbody>
+        </table>
+    </div>
+
+    <script>
+        // Mirrors the CHECK constraints in database/schema.sql — purely a UX
+        // convenience (dropdown instead of free text); Postgres is still the
+        // real source of truth and any drift here just falls back to a
+        // friendly 400 from the server.
+        const ENUM_OPTIONS = {
+            'academic_programs.degree_level': ['BACHELOR', 'MASTER', 'PHD', 'DIPLOMA', 'CERTIFICATE'],
+            'scholarships.coverage_type': ['FULL_TUITION', 'PARTIAL_TUITION', 'LIVING_STIPEND', 'FULL_FUNDING', 'TRAVEL_GRANT'],
+            'program_fees.fee_type': ['APPLICATION_FEE', 'TUITION_PER_SEMESTER', 'TUITION_PER_YEAR', 'TUITION_TOTAL', 'ADMINISTRATIVE_FEE'],
+            'program_fees.student_category': ['DOMESTIC', 'EU', 'INTERNATIONAL'],
+            'living_cost_estimates.category': ['GENERAL', 'ACCOMMODATION', 'FOOD', 'TRANSPORT', 'HEALTH_INSURANCE'],
+            'visa_requirements.visa_type': ['STUDY_VISA', 'RESIDENCE_PERMIT', 'SHORT_STAY_EXEMPT', 'TRANSIT_VISA'],
+            'student_accommodations.accommodation_type': ['UNIVERSITY_DORM', 'PRIVATE_HALL', 'SHARED_APARTMENT', 'HOMESTAY', 'STUDIO_APARTMENT'],
+            'support_resources.category': ['FREE_ADVISING', 'TEST_FEE_WAIVER', 'APPLICATION_FEE_WAIVER', 'REFUGEE_SUPPORT', 'CREDENTIAL_RECOVERY', 'EMERGENCY_FUND', 'MENTAL_HEALTH', 'LEGAL_AID', 'PEER_MENTORSHIP'],
+        };
+        const ARRAY_COLUMNS = new Set(['required_documents', 'amenities']);
+
+        let currentResource = null;
+        let currentSchema = null;
+        let currentRows = [];
+        let editingId = null;
+
+        function getKey() {
+            try { return sessionStorage.getItem('se_admin_key') || ''; } catch (_error) { return ''; }
+        }
+
+        function saveKey() {
+            const key = document.getElementById('admin-key').value;
+            try { sessionStorage.setItem('se_admin_key', key); } catch (_error) { /* ignore */ }
+            document.getElementById('status').textContent = 'Key saved for this browser tab.';
+            loadResources();
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+
+        function inputTypeFor(column) {
+            if (column.endsWith('_url')) return 'url';
+            if (column === 'contact_email') return 'email';
+            if (column === 'source_checked_on' || column === 'application_deadline') return 'date';
+            if (/(_eur|_percentage|_months|_days|_km)$/.test(column)) return 'number';
+            return 'text';
+        }
+
+        async function apiFetch(path, options = {}) {
+            const key = getKey();
+            const response = await fetch(path, {
+                ...options,
+                headers: { ...(options.headers || {}), 'x-admin-api-key': key },
+            });
+            const data = response.status === 204 ? null : await response.json();
+            if (!response.ok) throw new Error((data && data.error) || `Request failed (${response.status}).`);
+            return data;
+        }
+
+        async function loadResources() {
+            const statusEl = document.getElementById('status');
+            try {
+                const resources = await apiFetch('/api/v1/admin/resources');
+                const select = document.getElementById('resource-select');
+                select.innerHTML = resources.map((r) => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('');
+                statusEl.textContent = `${resources.length} manageable resource(s).`;
+            } catch (error) {
+                statusEl.textContent = error.message;
+            }
+        }
+
+        async function loadRows() {
+            const statusEl = document.getElementById('status');
+            currentResource = document.getElementById('resource-select').value;
+            if (!currentResource) { statusEl.textContent = 'Pick a resource first.'; return; }
+            statusEl.textContent = 'Loading…';
+            try {
+                currentSchema = await apiFetch(`/api/v1/admin/${currentResource}/_schema`);
+                currentRows = await apiFetch(`/api/v1/admin/${currentResource}`);
+                renderTable();
+                statusEl.textContent = `${currentRows.length} row(s) loaded for ${currentResource}.`;
+            } catch (error) {
+                statusEl.textContent = error.message;
+            }
+        }
+
+        function renderTable() {
+            const columns = [currentSchema.idColumn, ...currentSchema.columns.filter((c) => c !== currentSchema.idColumn)];
+            const displayColumns = columns.slice(0, 6);
+            document.getElementById('rows-head').innerHTML = displayColumns.map((c) => `<th>${escapeHtml(c)}</th>`).join('') + '<th>Actions</th>';
+            document.getElementById('rows-body').innerHTML = currentRows.map((row) => `
+                <tr>
+                    ${displayColumns.map((c) => `<td>${escapeHtml(Array.isArray(row[c]) ? row[c].join(', ') : row[c])}</td>`).join('')}
+                    <td>
+                        <button type="button" onclick="showEditForm('${row[currentSchema.idColumn]}')">Edit</button>
+                        <button type="button" class="danger" onclick="deleteRow('${row[currentSchema.idColumn]}')">Delete</button>
+                    </td>
+                </tr>`).join('');
+        }
+
+        function renderFormFields(existingRow) {
+            const container = document.getElementById('form-fields');
+            container.innerHTML = currentSchema.columns.map((column) => {
+                const isRequired = currentSchema.requiredColumns.includes(column);
+                const value = existingRow ? existingRow[column] : undefined;
+                const enumKey = `${currentResource}.${column}`;
+                const displayValue = Array.isArray(value) ? value.join(', ') : (value ?? '');
+                let fieldHtml;
+                if (ENUM_OPTIONS[enumKey]) {
+                    fieldHtml = `<select id="field-${column}">
+                        <option value="">(none)</option>
+                        ${ENUM_OPTIONS[enumKey].map((opt) => `<option value="${opt}"${value === opt ? ' selected' : ''}>${opt}</option>`).join('')}
+                    </select>`;
+                } else if (column === 'notes' || column === 'eligibility_notes' || column === 'description') {
+                    fieldHtml = `<textarea id="field-${column}" rows="2" style="width:100%">${escapeHtml(displayValue)}</textarea>`;
+                } else {
+                    fieldHtml = `<input id="field-${column}" type="${inputTypeFor(column)}" value="${escapeHtml(displayValue)}" ${ARRAY_COLUMNS.has(column) ? 'placeholder="comma, separated, values"' : ''}>`;
+                }
+                return `<div class="field" style="margin-bottom:8px">
+                    <label for="field-${column}">${escapeHtml(column)}${isRequired ? ' <span class="required-star">*</span>' : ''}</label>
+                    ${fieldHtml}
+                </div>`;
+            }).join('');
+        }
+
+        function showCreateForm() {
+            if (!currentSchema) { document.getElementById('status').textContent = 'Load a resource first.'; return; }
+            editingId = null;
+            document.getElementById('form-title').textContent = `New ${currentResource} record`;
+            renderFormFields(null);
+            document.getElementById('form-card').style.display = 'block';
+            document.getElementById('form-status').textContent = '';
+        }
+
+        function showEditForm(id) {
+            const row = currentRows.find((r) => String(r[currentSchema.idColumn]) === String(id));
+            if (!row) return;
+            editingId = id;
+            document.getElementById('form-title').textContent = `Edit ${currentResource} — ${id}`;
+            renderFormFields(row);
+            document.getElementById('form-card').style.display = 'block';
+            document.getElementById('form-status').textContent = '';
+        }
+
+        function hideForm() {
+            document.getElementById('form-card').style.display = 'none';
+        }
+
+        function collectFormBody() {
+            const body = {};
+            for (const column of currentSchema.columns) {
+                const el = document.getElementById(`field-${column}`);
+                if (!el) continue;
+                const raw = el.value;
+                if (raw === '') continue;
+                body[column] = ARRAY_COLUMNS.has(column) ? raw.split(',').map((v) => v.trim()).filter(Boolean) : raw;
+            }
+            return body;
+        }
+
+        async function submitForm() {
+            const statusEl = document.getElementById('form-status');
+            statusEl.textContent = 'Saving…';
+            try {
+                const body = collectFormBody();
+                if (editingId) {
+                    await apiFetch(`/api/v1/admin/${currentResource}/${editingId}`, {
+                        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+                    });
+                } else {
+                    await apiFetch(`/api/v1/admin/${currentResource}`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+                    });
+                }
+                statusEl.textContent = 'Saved.';
+                hideForm();
+                loadRows();
+            } catch (error) {
+                statusEl.textContent = error.message;
+            }
+        }
+
+        async function deleteRow(id) {
+            if (!confirm(`Delete this ${currentResource} record permanently? This cannot be undone.`)) return;
+            const statusEl = document.getElementById('status');
+            try {
+                await apiFetch(`/api/v1/admin/${currentResource}/${id}`, { method: 'DELETE' });
+                statusEl.textContent = 'Deleted.';
+                loadRows();
+            } catch (error) {
+                statusEl.textContent = error.message;
+            }
+        }
+
+        (function init() {
+            const key = getKey();
+            if (key) document.getElementById('admin-key').value = key;
+            loadResources();
+        })();
+    </script>
+</body>
+</html>

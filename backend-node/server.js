@@ -18,6 +18,70 @@ if (process.env.SENTRY_DSN) {
 const APPLICATION_STATUSES = new Set(['DRAFT', 'DOCUMENTS_IN_PROGRESS', 'SUBMITTED', 'OFFER_RECEIVED', 'DECLINED', 'WITHDRAWN']);
 const DOCUMENT_STATUSES = new Set(['NOT_STARTED', 'IN_PROGRESS', 'READY', 'SUBMITTED', 'NOT_REQUIRED']);
 
+// Admin CMS: a generic CRUD layer over the sourced content tables, so a new
+// university/scholarship/fee/etc. can be entered through an authenticated API
+// call instead of a hand-written SQL migration. Column lists are a fixed
+// whitelist taken straight from database/schema.sql — never derived from
+// request input — so building SQL with them by string interpolation is safe;
+// only the values are parameterized. NOT NULL/CHECK constraints (e.g. a
+// source_url being required) are still enforced by Postgres itself and
+// surfaced back as a friendly 400 via friendlyDbError().
+const ADMIN_RESOURCES = {
+  universities: {
+    idColumn: 'university_id',
+    columns: ['name', 'country_code', 'city', 'website_url'],
+    requiredColumns: ['name', 'country_code'],
+  },
+  academic_programs: {
+    idColumn: 'program_id',
+    columns: ['university_id', 'title', 'degree_level', 'field_of_study', 'duration_months', 'programme_url'],
+    requiredColumns: ['university_id', 'title', 'degree_level'],
+  },
+  admission_requirements: {
+    idColumn: 'requirement_id',
+    columns: ['program_id', 'minimum_cgpa_percentage', 'official_funds_requirement_eur', 'language_test_name', 'minimum_language_score', 'required_documents', 'source_url', 'source_checked_on', 'notes'],
+    requiredColumns: ['program_id', 'source_url', 'source_checked_on'],
+  },
+  scholarships: {
+    idColumn: 'scholarship_id',
+    columns: ['name', 'provider', 'country_code', 'university_id', 'program_id', 'coverage_type', 'amount_eur', 'eligibility_notes', 'application_deadline', 'application_url', 'source_url', 'source_checked_on'],
+    requiredColumns: ['name', 'provider', 'coverage_type', 'source_url', 'source_checked_on'],
+  },
+  program_fees: {
+    idColumn: 'fee_id',
+    columns: ['program_id', 'fee_type', 'student_category', 'amount_eur', 'source_url', 'source_checked_on', 'notes'],
+    requiredColumns: ['program_id', 'fee_type', 'amount_eur', 'source_url', 'source_checked_on'],
+  },
+  living_cost_estimates: {
+    idColumn: 'estimate_id',
+    columns: ['country_code', 'city', 'university_id', 'category', 'monthly_estimate_eur', 'source_url', 'source_checked_on', 'notes'],
+    requiredColumns: ['country_code', 'monthly_estimate_eur', 'source_url', 'source_checked_on'],
+  },
+  visa_requirements: {
+    idColumn: 'visa_requirement_id',
+    columns: ['destination_country_code', 'applicant_country_code', 'visa_type', 'financial_proof_eur', 'estimated_processing_days', 'required_documents', 'application_url', 'source_url', 'source_checked_on', 'notes'],
+    requiredColumns: ['destination_country_code', 'visa_type', 'source_url', 'source_checked_on'],
+  },
+  student_accommodations: {
+    idColumn: 'accommodation_id',
+    columns: ['university_id', 'accommodation_type', 'provider_name', 'city', 'monthly_rent_eur', 'deposit_eur', 'distance_to_university_km', 'amenities', 'application_url', 'contact_email', 'source_url', 'source_checked_on', 'notes'],
+    requiredColumns: ['university_id', 'accommodation_type', 'provider_name', 'city', 'monthly_rent_eur', 'source_url', 'source_checked_on'],
+  },
+  support_resources: {
+    idColumn: 'resource_id',
+    columns: ['name', 'provider', 'category', 'country_code', 'description', 'eligibility_notes', 'application_url', 'contact_email', 'source_url', 'source_checked_on', 'notes'],
+    requiredColumns: ['name', 'provider', 'category', 'description', 'source_url', 'source_checked_on'],
+  },
+};
+
+function friendlyDbError(error) {
+  if (error.code === '23502') return `Missing required field: ${error.column}.`;
+  if (error.code === '23503') return `Invalid reference — ${error.detail || 'a referenced row does not exist'}.`;
+  if (error.code === '23505') return `Duplicate value — ${error.detail || error.message}.`;
+  if (error.code === '23514') return `Value violates a constraint (${error.constraint}) — ${error.detail || error.message}.`;
+  return null;
+}
+
 function requireEnv(name) {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is required for this operation.`);
@@ -100,6 +164,15 @@ function getPartners() {
   } catch (_error) {
     return [];
   }
+}
+
+function adminApiKeyRequired(req, res, next) {
+  const configuredKey = process.env.ADMIN_API_KEY;
+  const providedKey = req.get('x-admin-api-key');
+  if (!configuredKey || !providedKey || providedKey !== configuredKey) {
+    return res.status(401).json({ error: 'A valid admin API key is required.' });
+  }
+  return next();
 }
 
 // Institute analytics API keys — each key is scoped to exactly one
@@ -882,6 +955,88 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
       events: rows,
       disclaimer: 'Aggregate, anonymized view counts for your institution only — no individual student data is included or ever shared.',
     });
+  });
+
+  app.get('/api/v1/admin/resources', adminApiKeyRequired, (_req, res) => {
+    res.json(Object.keys(ADMIN_RESOURCES));
+  });
+
+  app.get('/api/v1/admin/:resource/_schema', adminApiKeyRequired, (req, res) => {
+    const config = ADMIN_RESOURCES[req.params.resource];
+    if (!config) return res.status(404).json({ error: 'Unknown resource.' });
+    return res.json({ idColumn: config.idColumn, columns: config.columns, requiredColumns: config.requiredColumns });
+  });
+
+  app.get('/api/v1/admin/:resource', adminApiKeyRequired, async (req, res) => {
+    const config = ADMIN_RESOURCES[req.params.resource];
+    if (!config) return res.status(404).json({ error: 'Unknown resource.' });
+    const { rows } = await pool.query(`SELECT * FROM ${req.params.resource} ORDER BY ${config.idColumn} LIMIT 500`);
+    return res.json(rows);
+  });
+
+  app.get('/api/v1/admin/:resource/:id', adminApiKeyRequired, async (req, res) => {
+    const config = ADMIN_RESOURCES[req.params.resource];
+    if (!config) return res.status(404).json({ error: 'Unknown resource.' });
+    const { rows } = await pool.query(`SELECT * FROM ${req.params.resource} WHERE ${config.idColumn} = $1`, [req.params.id]);
+    return rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Not found.' });
+  });
+
+  app.post('/api/v1/admin/:resource', adminApiKeyRequired, async (req, res) => {
+    const config = ADMIN_RESOURCES[req.params.resource];
+    if (!config) return res.status(404).json({ error: 'Unknown resource.' });
+    const body = req.body || {};
+    const missing = config.requiredColumns.filter((column) => body[column] === undefined || body[column] === null || body[column] === '');
+    if (missing.length) return res.status(400).json({ error: `Missing required field(s): ${missing.join(', ')}.` });
+    const id = crypto.randomUUID();
+    const providedColumns = config.columns.filter((column) => body[column] !== undefined);
+    const allColumns = [config.idColumn, ...providedColumns];
+    const values = [id, ...providedColumns.map((column) => body[column])];
+    const placeholders = allColumns.map((_column, index) => `$${index + 1}`);
+    try {
+      await pool.query(
+        `INSERT INTO ${req.params.resource} (${allColumns.join(', ')}) VALUES (${placeholders.join(', ')})`,
+        values,
+      );
+      return res.status(201).json({ [config.idColumn]: id });
+    } catch (error) {
+      const friendly = friendlyDbError(error);
+      if (friendly) return res.status(400).json({ error: friendly });
+      throw error;
+    }
+  });
+
+  app.patch('/api/v1/admin/:resource/:id', adminApiKeyRequired, async (req, res) => {
+    const config = ADMIN_RESOURCES[req.params.resource];
+    if (!config) return res.status(404).json({ error: 'Unknown resource.' });
+    const body = req.body || {};
+    const providedColumns = config.columns.filter((column) => body[column] !== undefined);
+    if (!providedColumns.length) return res.status(400).json({ error: 'No updatable fields were provided.' });
+    const setClause = providedColumns.map((column, index) => `${column} = $${index + 2}`).join(', ');
+    const values = [req.params.id, ...providedColumns.map((column) => body[column])];
+    try {
+      const { rowCount } = await pool.query(
+        `UPDATE ${req.params.resource} SET ${setClause}, updated_at = now() WHERE ${config.idColumn} = $1`,
+        values,
+      );
+      return rowCount ? res.status(204).end() : res.status(404).json({ error: 'Not found.' });
+    } catch (error) {
+      const friendly = friendlyDbError(error);
+      if (friendly) return res.status(400).json({ error: friendly });
+      throw error;
+    }
+  });
+
+  app.delete('/api/v1/admin/:resource/:id', adminApiKeyRequired, async (req, res) => {
+    const config = ADMIN_RESOURCES[req.params.resource];
+    if (!config) return res.status(404).json({ error: 'Unknown resource.' });
+    try {
+      const { rowCount } = await pool.query(`DELETE FROM ${req.params.resource} WHERE ${config.idColumn} = $1`, [req.params.id]);
+      return rowCount ? res.status(204).end() : res.status(404).json({ error: 'Not found.' });
+    } catch (error) {
+      const friendly = friendlyDbError(error);
+      if (friendly) return res.status(400).json({ error: friendly });
+      throw error;
+    }
   });
 
   // eslint-disable-next-line no-unused-vars
