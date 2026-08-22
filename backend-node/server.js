@@ -86,16 +86,190 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
   });
 
   app.post('/api/v1/readiness/eligibility', authRequired, async (req, res) => {
-    const { requirements } = req.body || {};
+    let { requirements } = req.body || {};
+    const { programId } = req.body || {};
     const { rows } = await pool.query(
       'SELECT cgpa_percentage, liquid_funds_eur FROM users WHERE user_id = $1', [req.user.id],
     );
     if (!rows[0]) return res.status(404).json({ error: 'Student profile not found.' });
+    if (programId) {
+      const { rows: requirementRows } = await pool.query(
+        `SELECT minimum_cgpa_percentage, official_funds_requirement_eur, source_url, source_checked_on
+         FROM admission_requirements WHERE program_id = $1 ORDER BY source_checked_on DESC LIMIT 1`,
+        [programId],
+      );
+      if (!requirementRows[0]) return res.status(404).json({ error: 'No admission requirements found for this programme.' });
+      requirements = requirementRows[0];
+    }
     try {
       return res.json(await runPython({ action: 'evaluate_profile', profile: rows[0], requirements }));
     } catch (_error) {
       return res.status(503).json({ error: 'The eligibility checker is temporarily unavailable.' });
     }
+  });
+
+  app.get('/api/v1/universities', async (req, res) => {
+    const { search, country } = req.query;
+    const conditions = [];
+    const params = [];
+    if (search) {
+      params.push(`%${search}%`);
+      conditions.push(`name ILIKE $${params.length}`);
+    }
+    if (country) {
+      params.push(String(country).toUpperCase());
+      conditions.push(`country_code = $${params.length}`);
+    }
+    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const { rows } = await pool.query(
+      `SELECT university_id, name, country_code, city, website_url FROM universities ${whereClause} ORDER BY name LIMIT 50`,
+      params,
+    );
+    res.json(rows);
+  });
+
+  app.get('/api/v1/universities/:universityId', async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT u.*, COALESCE(json_agg(p ORDER BY p.title) FILTER (WHERE p.program_id IS NOT NULL), '[]') AS programs,
+       COALESCE((SELECT json_agg(l) FROM living_cost_estimates l
+                 WHERE l.university_id = u.university_id OR (l.university_id IS NULL AND l.country_code = u.country_code)), '[]') AS living_cost_estimates,
+       COALESCE((SELECT json_agg(v ORDER BY v.applicant_country_code NULLS FIRST) FROM visa_requirements v
+                 WHERE v.destination_country_code = u.country_code), '[]') AS visa_requirements,
+       COALESCE((SELECT json_agg(a ORDER BY a.monthly_rent_eur) FROM student_accommodations a
+                 WHERE a.university_id = u.university_id), '[]') AS accommodations
+       FROM universities u LEFT JOIN academic_programs p ON p.university_id = u.university_id
+       WHERE u.university_id = $1 GROUP BY u.university_id`,
+      [req.params.universityId],
+    );
+    return rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'University not found.' });
+  });
+
+  app.get('/api/v1/programs/:programId', async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT p.*, u.name AS university_name, u.country_code, u.city,
+       COALESCE((SELECT json_agg(r ORDER BY r.source_checked_on DESC) FROM admission_requirements r WHERE r.program_id = p.program_id), '[]') AS admission_requirements,
+       COALESCE((SELECT json_agg(s ORDER BY s.application_deadline NULLS LAST) FROM scholarships s WHERE s.program_id = p.program_id), '[]') AS scholarships,
+       COALESCE((SELECT json_agg(f ORDER BY f.fee_type) FROM program_fees f WHERE f.program_id = p.program_id), '[]') AS fees
+       FROM academic_programs p JOIN universities u ON u.university_id = p.university_id
+       WHERE p.program_id = $1`,
+      [req.params.programId],
+    );
+    return rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Programme not found.' });
+  });
+
+  app.get('/api/v1/living-costs', async (req, res) => {
+    const { country, city, universityId } = req.query;
+    const conditions = [];
+    const params = [];
+    if (country) {
+      params.push(String(country).toUpperCase());
+      conditions.push(`country_code = $${params.length}`);
+    }
+    if (city) {
+      params.push(`%${city}%`);
+      conditions.push(`city ILIKE $${params.length}`);
+    }
+    if (universityId) {
+      params.push(universityId);
+      conditions.push(`university_id = $${params.length}`);
+    }
+    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const { rows } = await pool.query(
+      `SELECT * FROM living_cost_estimates ${whereClause} ORDER BY country_code, category LIMIT 50`,
+      params,
+    );
+    res.json(rows);
+  });
+
+  app.get('/api/v1/scholarships', async (req, res) => {
+    const { search, country, universityId, programId } = req.query;
+    const conditions = [];
+    const params = [];
+    if (search) {
+      params.push(`%${search}%`);
+      conditions.push(`(name ILIKE $${params.length} OR provider ILIKE $${params.length})`);
+    }
+    if (country) {
+      params.push(String(country).toUpperCase());
+      conditions.push(`country_code = $${params.length}`);
+    }
+    if (universityId) {
+      params.push(universityId);
+      conditions.push(`university_id = $${params.length}`);
+    }
+    if (programId) {
+      params.push(programId);
+      conditions.push(`program_id = $${params.length}`);
+    }
+    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const { rows } = await pool.query(
+      `SELECT * FROM scholarships ${whereClause} ORDER BY application_deadline NULLS LAST LIMIT 50`,
+      params,
+    );
+    res.json(rows);
+  });
+
+  app.get('/api/v1/scholarships/:scholarshipId', async (req, res) => {
+    const { rows } = await pool.query('SELECT * FROM scholarships WHERE scholarship_id = $1', [req.params.scholarshipId]);
+    return rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Scholarship not found.' });
+  });
+
+  app.get('/api/v1/visa-requirements', async (req, res) => {
+    const { destinationCountry, applicantCountry } = req.query;
+    const conditions = [];
+    const params = [];
+    if (destinationCountry) {
+      params.push(String(destinationCountry).toUpperCase());
+      conditions.push(`destination_country_code = $${params.length}`);
+    }
+    if (applicantCountry) {
+      params.push(String(applicantCountry).toUpperCase());
+      conditions.push(`(applicant_country_code = $${params.length} OR applicant_country_code IS NULL)`);
+    }
+    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const { rows } = await pool.query(
+      `SELECT * FROM visa_requirements ${whereClause} ORDER BY destination_country_code, applicant_country_code NULLS FIRST LIMIT 50`,
+      params,
+    );
+    res.json(rows);
+  });
+
+  app.get('/api/v1/visa-requirements/:visaRequirementId', async (req, res) => {
+    const { rows } = await pool.query('SELECT * FROM visa_requirements WHERE visa_requirement_id = $1', [req.params.visaRequirementId]);
+    return rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Visa requirement not found.' });
+  });
+
+  app.get('/api/v1/accommodations', async (req, res) => {
+    const { city, universityId, type, maxRent } = req.query;
+    const conditions = [];
+    const params = [];
+    if (city) {
+      params.push(`%${city}%`);
+      conditions.push(`city ILIKE $${params.length}`);
+    }
+    if (universityId) {
+      params.push(universityId);
+      conditions.push(`university_id = $${params.length}`);
+    }
+    if (type) {
+      params.push(String(type).toUpperCase());
+      conditions.push(`accommodation_type = $${params.length}`);
+    }
+    if (maxRent) {
+      params.push(Number(maxRent));
+      conditions.push(`monthly_rent_eur <= $${params.length}`);
+    }
+    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const { rows } = await pool.query(
+      `SELECT * FROM student_accommodations ${whereClause} ORDER BY monthly_rent_eur LIMIT 50`,
+      params,
+    );
+    res.json(rows);
+  });
+
+  app.get('/api/v1/accommodations/:accommodationId', async (req, res) => {
+    const { rows } = await pool.query('SELECT * FROM student_accommodations WHERE accommodation_id = $1', [req.params.accommodationId]);
+    return rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Accommodation not found.' });
   });
 
   app.put('/api/v1/me/profile', authRequired, async (req, res) => {

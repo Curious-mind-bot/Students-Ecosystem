@@ -111,6 +111,63 @@
         
         <div class="phone-body">
             <div class="card">
+                <div class="card-title">Find a university</div>
+                <div class="input-group">
+                    <label>Search by name</label>
+                    <input id="university-search" type="text" placeholder="e.g. LMU Munich">
+                </div>
+                <div class="input-group">
+                    <label>Country code</label>
+                    <input id="university-country" type="text" maxlength="2" placeholder="e.g. DE">
+                </div>
+                <button class="btn" type="button" onclick="searchUniversities()">Search</button>
+                <div id="university-results" style="margin-top:12px"></div>
+                <div id="program-details" style="margin-top:12px;font-size:.8rem;color:#cbd5e1;line-height:1.5"></div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Scholarships</div>
+                <div class="input-group">
+                    <label>Search by name or provider</label>
+                    <input id="scholarship-search" type="text" placeholder="e.g. DAAD">
+                </div>
+                <div class="input-group">
+                    <label>Country code</label>
+                    <input id="scholarship-country" type="text" maxlength="2" placeholder="e.g. DE">
+                </div>
+                <button class="btn" type="button" onclick="searchScholarships()">Search</button>
+                <div id="scholarship-results" style="margin-top:12px;font-size:.8rem;color:#cbd5e1;line-height:1.5"></div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Visa requirements</div>
+                <div class="input-group">
+                    <label>Destination country code</label>
+                    <input id="visa-destination" type="text" maxlength="2" placeholder="e.g. DE">
+                </div>
+                <div class="input-group">
+                    <label>Your nationality (optional)</label>
+                    <input id="visa-applicant" type="text" maxlength="2" placeholder="e.g. IN">
+                </div>
+                <button class="btn" type="button" onclick="searchVisaRequirements()">Search</button>
+                <div id="visa-results" style="margin-top:12px;font-size:.8rem;color:#cbd5e1;line-height:1.5"></div>
+            </div>
+
+            <div class="card">
+                <div class="card-title">Student accommodation</div>
+                <div class="input-group">
+                    <label>City</label>
+                    <input id="accommodation-city" type="text" placeholder="e.g. Munich">
+                </div>
+                <div class="input-group">
+                    <label>Max monthly rent (EUR)</label>
+                    <input id="accommodation-max-rent" type="number" min="0" placeholder="e.g. 700">
+                </div>
+                <button class="btn" type="button" onclick="searchAccommodations()">Search</button>
+                <div id="accommodation-results" style="margin-top:12px;font-size:.8rem;color:#cbd5e1;line-height:1.5"></div>
+            </div>
+
+            <div class="card">
                 <div class="card-title">Active Track</div>
                 <div style="font-size: 1.1rem; font-weight: bold; margin-bottom: 6px;">M.Sc. Computer Science</div>
                 <div style="font-size: 0.85rem; color: #cbd5e1; margin-bottom: 12px;">LMU Munich · Germany</div>
@@ -153,17 +210,198 @@
         const result = document.getElementById('review-result');
         result.textContent = 'Reviewing…';
         try {
-          const response = await fetch('/api/v1/readiness/statement', {
+          const response = await fetch('/api/v1/readiness/sop', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({statement})
           });
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || 'The review could not be completed.');
-          const findings = data.findings.length ? `Items to review: ${data.findings.join(', ')}.` : 'No configured keywords found.';
-          result.textContent = `${findings} ${data.guidance.join(' ')}`;
+          const findings = data.findings.length
+            ? data.findings.map((f) => `Sentence ${f.sentence ?? '(overall)'}: ${f.message} ${f.suggestion}`).join(' ')
+            : 'No review items found.';
+          result.textContent = `${findings} ${data.disclaimer}`;
         } catch (error) {
           result.textContent = error.message;
+        }
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+      }
+
+      async function searchUniversities() {
+        const search = document.getElementById('university-search').value;
+        const country = document.getElementById('university-country').value;
+        const resultsEl = document.getElementById('university-results');
+        document.getElementById('program-details').innerHTML = '';
+        resultsEl.textContent = 'Searching…';
+        const params = new URLSearchParams();
+        if (search) params.set('search', search);
+        if (country) params.set('country', country);
+        try {
+          const response = await fetch(`/api/v1/universities?${params.toString()}`);
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Search failed.');
+          if (!data.length) { resultsEl.textContent = 'No universities matched.'; return; }
+          resultsEl.innerHTML = data.map((u) => `
+            <div class="card" style="margin-bottom:8px;cursor:pointer" onclick="showUniversity('${u.university_id}')">
+              <div style="font-weight:bold">${escapeHtml(u.name)}</div>
+              <div style="font-size:.8rem;color:#94a3b8">${escapeHtml(u.city || '')} · ${escapeHtml(u.country_code)}</div>
+            </div>`).join('');
+        } catch (error) {
+          resultsEl.textContent = error.message;
+        }
+      }
+
+      async function showUniversity(universityId) {
+        const detailsEl = document.getElementById('program-details');
+        detailsEl.textContent = 'Loading programmes…';
+        try {
+          const response = await fetch(`/api/v1/universities/${universityId}`);
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Could not load university.');
+          const livingCosts = data.living_cost_estimates || [];
+          const costsHtml = livingCosts.length ? `<div style="font-weight:bold;margin-bottom:6px">Estimated cost of living</div>` +
+            livingCosts.map((l) => `
+              <div style="margin-bottom:8px">
+                ${escapeHtml(l.category)}: €${l.monthly_estimate_eur}/month
+                <div style="color:#94a3b8">Source: <a href="${escapeHtml(l.source_url)}" target="_blank" rel="noopener">${escapeHtml(l.source_url)}</a> (checked ${escapeHtml(l.source_checked_on)})</div>
+              </div>`).join('') : '';
+          const visaRequirements = data.visa_requirements || [];
+          const visaHtml = visaRequirements.length ? `<div style="font-weight:bold;margin:12px 0 6px">Visa requirements</div>` +
+            visaRequirements.map((v) => renderVisaRequirement(v)).join('') : '';
+          const programsHtml = (data.programs || []).map((p) => `
+            <div style="margin-bottom:8px">
+              <a href="#" onclick="showProgram('${p.program_id}'); return false;">${escapeHtml(p.title)}</a>
+              (${escapeHtml(p.degree_level)})
+            </div>`).join('') || 'No programmes listed for this university yet.';
+          const accommodations = data.accommodations || [];
+          const accommodationsHtml = accommodations.length ? `<div style="font-weight:bold;margin:12px 0 6px">Accommodation near this university</div>` +
+            accommodations.map((a) => renderAccommodation(a)).join('') : '';
+          detailsEl.innerHTML = costsHtml + visaHtml + programsHtml + accommodationsHtml;
+        } catch (error) {
+          detailsEl.textContent = error.message;
+        }
+      }
+
+      async function showProgram(programId) {
+        const detailsEl = document.getElementById('program-details');
+        detailsEl.textContent = 'Loading requirements…';
+        try {
+          const response = await fetch(`/api/v1/programs/${programId}`);
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Could not load programme.');
+          const requirements = data.admission_requirements || [];
+          const scholarships = data.scholarships || [];
+          const fees = data.fees || [];
+          detailsEl.innerHTML = `<div style="font-weight:bold;margin-bottom:6px">${escapeHtml(data.title)} · ${escapeHtml(data.university_name)}</div>` +
+            (requirements.length ? requirements.map((r) => `
+              <div style="margin-bottom:10px;border-top:1px solid #334155;padding-top:8px">
+                ${r.minimum_cgpa_percentage != null ? `<div>Minimum CGPA: ${r.minimum_cgpa_percentage}%</div>` : ''}
+                ${r.official_funds_requirement_eur != null ? `<div>Funds required: €${r.official_funds_requirement_eur}</div>` : ''}
+                ${r.language_test_name ? `<div>${escapeHtml(r.language_test_name)}: ${escapeHtml(r.minimum_language_score)}</div>` : ''}
+                <div style="color:#94a3b8">Source: <a href="${escapeHtml(r.source_url)}" target="_blank" rel="noopener">${escapeHtml(r.source_url)}</a> (checked ${escapeHtml(r.source_checked_on)})</div>
+              </div>`).join('') : '<div>No admission requirements listed yet. Always confirm directly with the university.</div>') +
+            (fees.length ? `<div style="font-weight:bold;margin:12px 0 6px">Fees</div>` + fees.map((f) => `
+              <div style="margin-bottom:10px;border-top:1px solid #334155;padding-top:8px">
+                <div>${escapeHtml(f.fee_type)} (${escapeHtml(f.student_category)}): €${f.amount_eur}</div>
+                <div style="color:#94a3b8">Source: <a href="${escapeHtml(f.source_url)}" target="_blank" rel="noopener">${escapeHtml(f.source_url)}</a> (checked ${escapeHtml(f.source_checked_on)})</div>
+              </div>`).join('') : '') +
+            (scholarships.length ? `<div style="font-weight:bold;margin:12px 0 6px">Scholarships for this programme</div>` + scholarships.map((s) => renderScholarship(s)).join('') : '');
+        } catch (error) {
+          detailsEl.textContent = error.message;
+        }
+      }
+
+      function renderScholarship(s) {
+        return `
+          <div style="margin-bottom:10px;border-top:1px solid #334155;padding-top:8px">
+            <div style="font-weight:bold">${escapeHtml(s.name)}</div>
+            <div>${escapeHtml(s.provider)} · ${escapeHtml(s.coverage_type)}${s.amount_eur != null ? ` · €${s.amount_eur}` : ''}</div>
+            ${s.application_deadline ? `<div>Deadline: ${escapeHtml(s.application_deadline)}</div>` : ''}
+            ${s.eligibility_notes ? `<div style="color:#94a3b8">${escapeHtml(s.eligibility_notes)}</div>` : ''}
+            <div style="color:#94a3b8">Source: <a href="${escapeHtml(s.source_url)}" target="_blank" rel="noopener">${escapeHtml(s.source_url)}</a> (checked ${escapeHtml(s.source_checked_on)})</div>
+          </div>`;
+      }
+
+      async function searchScholarships() {
+        const search = document.getElementById('scholarship-search').value;
+        const country = document.getElementById('scholarship-country').value;
+        const resultsEl = document.getElementById('scholarship-results');
+        resultsEl.textContent = 'Searching…';
+        const params = new URLSearchParams();
+        if (search) params.set('search', search);
+        if (country) params.set('country', country);
+        try {
+          const response = await fetch(`/api/v1/scholarships?${params.toString()}`);
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Search failed.');
+          resultsEl.innerHTML = data.length ? data.map((s) => renderScholarship(s)).join('') : 'No scholarships matched.';
+        } catch (error) {
+          resultsEl.textContent = error.message;
+        }
+      }
+
+      function renderVisaRequirement(v) {
+        return `
+          <div style="margin-bottom:10px;border-top:1px solid #334155;padding-top:8px">
+            <div style="font-weight:bold">${escapeHtml(v.destination_country_code)} · ${escapeHtml(v.visa_type)}</div>
+            <div>${v.applicant_country_code ? `For nationality: ${escapeHtml(v.applicant_country_code)}` : 'Applies to all nationalities'}</div>
+            ${v.financial_proof_eur != null ? `<div>Financial proof required: €${v.financial_proof_eur}</div>` : ''}
+            ${v.estimated_processing_days != null ? `<div>Estimated processing time: ${v.estimated_processing_days} days</div>` : ''}
+            ${(v.required_documents || []).length ? `<div>Documents: ${escapeHtml(v.required_documents.join(', '))}</div>` : ''}
+            ${v.application_url ? `<div><a href="${escapeHtml(v.application_url)}" target="_blank" rel="noopener">Official application page</a></div>` : ''}
+            <div style="color:#94a3b8">Source: <a href="${escapeHtml(v.source_url)}" target="_blank" rel="noopener">${escapeHtml(v.source_url)}</a> (checked ${escapeHtml(v.source_checked_on)})</div>
+          </div>`;
+      }
+
+      async function searchVisaRequirements() {
+        const destinationCountry = document.getElementById('visa-destination').value;
+        const applicantCountry = document.getElementById('visa-applicant').value;
+        const resultsEl = document.getElementById('visa-results');
+        resultsEl.textContent = 'Searching…';
+        const params = new URLSearchParams();
+        if (destinationCountry) params.set('destinationCountry', destinationCountry);
+        if (applicantCountry) params.set('applicantCountry', applicantCountry);
+        try {
+          const response = await fetch(`/api/v1/visa-requirements?${params.toString()}`);
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Search failed.');
+          resultsEl.innerHTML = data.length ? data.map((v) => renderVisaRequirement(v)).join('') : 'No visa requirements matched.';
+        } catch (error) {
+          resultsEl.textContent = error.message;
+        }
+      }
+
+      function renderAccommodation(a) {
+        return `
+          <div style="margin-bottom:10px;border-top:1px solid #334155;padding-top:8px">
+            <div style="font-weight:bold">${escapeHtml(a.provider_name)}</div>
+            <div>${escapeHtml(a.accommodation_type)} · ${escapeHtml(a.city)} · €${a.monthly_rent_eur}/month</div>
+            ${a.deposit_eur != null ? `<div>Deposit: €${a.deposit_eur}</div>` : ''}
+            ${a.distance_to_university_km != null ? `<div>Distance to university: ${a.distance_to_university_km} km</div>` : ''}
+            ${(a.amenities || []).length ? `<div>Amenities: ${escapeHtml(a.amenities.join(', '))}</div>` : ''}
+            ${a.application_url ? `<div><a href="${escapeHtml(a.application_url)}" target="_blank" rel="noopener">Application page</a></div>` : ''}
+            <div style="color:#94a3b8">Source: <a href="${escapeHtml(a.source_url)}" target="_blank" rel="noopener">${escapeHtml(a.source_url)}</a> (checked ${escapeHtml(a.source_checked_on)})</div>
+          </div>`;
+      }
+
+      async function searchAccommodations() {
+        const city = document.getElementById('accommodation-city').value;
+        const maxRent = document.getElementById('accommodation-max-rent').value;
+        const resultsEl = document.getElementById('accommodation-results');
+        resultsEl.textContent = 'Searching…';
+        const params = new URLSearchParams();
+        if (city) params.set('city', city);
+        if (maxRent) params.set('maxRent', maxRent);
+        try {
+          const response = await fetch(`/api/v1/accommodations?${params.toString()}`);
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Search failed.');
+          resultsEl.innerHTML = data.length ? data.map((a) => renderAccommodation(a)).join('') : 'No accommodation matched.';
+        } catch (error) {
+          resultsEl.textContent = error.message;
         }
       }
     </script>
