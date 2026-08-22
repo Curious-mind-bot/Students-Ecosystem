@@ -126,6 +126,20 @@ def evaluate_profile(profile: dict, requirements: dict | None = None) -> dict:
     return result
 
 
+def evaluate_candidates(profile: dict, candidates: list) -> list:
+    """Run evaluate_profile against many programmes at once, tagging each result.
+
+    Used to power a "find my matches" view: same per-programme comparison as
+    evaluate_profile, just batched into one process instead of one per programme.
+    """
+    results = []
+    for candidate in candidates or []:
+        evaluation = evaluate_profile(profile, candidate.get("requirements"))
+        evaluation["program_id"] = candidate.get("program_id")
+        results.append(evaluation)
+    return results
+
+
 def main() -> None:
     payload = json.load(sys.stdin)
     action = payload.get("action")
@@ -133,6 +147,8 @@ def main() -> None:
         print(json.dumps(SOPClarityLinter().lint(payload.get("statement", ""))))
     elif action == "evaluate_profile":
         print(json.dumps(evaluate_profile(payload.get("profile", {}), payload.get("requirements"))))
+    elif action == "evaluate_candidates":
+        print(json.dumps(evaluate_candidates(payload.get("profile", {}), payload.get("candidates", []))))
     else:
         print(json.dumps({"error": "Unknown action"}))
         raise SystemExit(2)

@@ -3,6 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0f172a">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" href="/icon.svg" type="image/svg+xml">
     <title>Student Ecosystem App Shell</title>
     <style>
         body {
@@ -122,12 +125,21 @@
 </head>
 <body>
 
-    <a class="skip-link" href="#main-content">Skip to main content</a>
+    <a class="skip-link" href="#main-content" data-i18n="skip_link">Skip to main content</a>
     <div class="phone-container">
         <header class="phone-header">
-            <h1>Students-Ecosystem</h1>
+            <h1 data-i18n="app_title">Students-Ecosystem</h1>
             <div class="input-group" style="margin:10px 0 0;text-align:left">
-                <label for="currency-select">Display costs in</label>
+                <label for="language-select" data-i18n="language_label">Language</label>
+                <select id="language-select" onchange="applyLanguage(this.value)">
+                    <option value="en">English</option>
+                    <option value="fr">Français</option>
+                    <option value="ar">العربية</option>
+                    <option value="es">Español</option>
+                </select>
+            </div>
+            <div class="input-group" style="margin:10px 0 0;text-align:left">
+                <label for="currency-select" data-i18n="currency_label">Display costs in</label>
                 <select id="currency-select" onchange="setPreferredCurrency()">
                     <option value="EUR">EUR (source currency)</option>
                     <option value="USD">USD</option>
@@ -149,7 +161,7 @@
 
         <main class="phone-body" id="main-content">
             <div class="card">
-                <div class="card-title">Account</div>
+                <div class="card-title" data-i18n="card_account">Account</div>
                 <div class="input-group">
                     <label for="account-name">Full name (for registering)</label>
                     <input id="account-name" type="text" placeholder="e.g. Jane Student">
@@ -162,13 +174,58 @@
                     <label for="account-password">Password</label>
                     <input id="account-password" type="password" placeholder="At least 8 characters">
                 </div>
-                <button class="btn" type="button" onclick="registerAccount()">Register</button>
-                <button class="btn" type="button" onclick="loginAccount()">Log in</button>
+                <button class="btn" type="button" onclick="registerAccount()" data-i18n="register">Register</button>
+                <button class="btn" type="button" onclick="loginAccount()" data-i18n="login">Log in</button>
                 <div id="account-status" role="status" aria-live="polite" style="margin-top:8px;font-size:.8rem;color:#cbd5e1"></div>
             </div>
 
             <div class="card">
-                <div class="card-title">Find a university</div>
+                <div class="card-title" data-i18n="card_my_profile">My Profile</div>
+                <p style="font-size:.8rem;color:#cbd5e1;line-height:1.4">Log in first, then fill this in — Find My Matches uses it to compare you against sourced admission requirements. Nothing here is shared or predicts an outcome.</p>
+                <div class="input-group">
+                    <label for="profile-nationality">Nationality (country code)</label>
+                    <input id="profile-nationality" type="text" maxlength="2" placeholder="e.g. IN">
+                </div>
+                <div class="input-group">
+                    <label for="profile-cgpa">CGPA (as a percentage)</label>
+                    <input id="profile-cgpa" type="number" min="0" max="100" step="0.01" placeholder="e.g. 78">
+                </div>
+                <div class="input-group">
+                    <label for="profile-funds">Liquid funds available (EUR)</label>
+                    <input id="profile-funds" type="number" min="0" step="0.01" placeholder="e.g. 12000">
+                </div>
+                <button class="btn" type="button" onclick="saveProfile()" data-i18n="save_profile">Save profile</button>
+                <div id="profile-status" role="status" aria-live="polite" style="margin-top:8px;font-size:.8rem;color:#cbd5e1"></div>
+            </div>
+
+            <div class="card">
+                <div class="card-title" data-i18n="card_find_matches">Find My Matches</div>
+                <p style="font-size:.8rem;color:#cbd5e1;line-height:1.4">Ranks every programme in the database against your saved CGPA and funds, and estimated net cost after scholarships. Log in and save your profile first.</p>
+                <div class="input-group">
+                    <label for="matches-budget">Max net annual cost (EUR, optional)</label>
+                    <input id="matches-budget" type="number" min="0" placeholder="e.g. 8000">
+                </div>
+                <div class="input-group">
+                    <label for="matches-country">Destination country code (optional)</label>
+                    <input id="matches-country" type="text" maxlength="2" placeholder="e.g. DE">
+                </div>
+                <div class="input-group">
+                    <label for="matches-degree">Degree level (optional)</label>
+                    <select id="matches-degree">
+                        <option value="">Any level</option>
+                        <option value="BACHELOR">Bachelor</option>
+                        <option value="MASTER">Master</option>
+                        <option value="PHD">PhD</option>
+                        <option value="DIPLOMA">Diploma</option>
+                        <option value="CERTIFICATE">Certificate</option>
+                    </select>
+                </div>
+                <button class="btn" type="button" onclick="findMatches()" data-i18n="find_matches_button">Find my matches</button>
+                <div id="matches-results" aria-live="polite" style="margin-top:12px;font-size:.8rem;color:#cbd5e1;line-height:1.5"></div>
+            </div>
+
+            <div class="card">
+                <div class="card-title" data-i18n="card_find_university">Find a university</div>
                 <div class="input-group">
                     <label for="university-search">Search by name</label>
                     <input id="university-search" type="text" placeholder="e.g. LMU Munich">
@@ -177,13 +234,13 @@
                     <label for="university-country">Country code</label>
                     <input id="university-country" type="text" maxlength="2" placeholder="e.g. DE">
                 </div>
-                <button class="btn" type="button" onclick="searchUniversities()">Search</button>
+                <button class="btn" type="button" onclick="searchUniversities()" data-i18n="search">Search</button>
                 <div id="university-results" aria-live="polite" style="margin-top:12px"></div>
                 <div id="program-details" aria-live="polite" style="margin-top:12px;font-size:.8rem;color:#cbd5e1;line-height:1.5"></div>
             </div>
 
             <div class="card">
-                <div class="card-title">Scholarships</div>
+                <div class="card-title" data-i18n="card_scholarships">Scholarships</div>
                 <div class="input-group">
                     <label for="scholarship-search">Search by name or provider</label>
                     <input id="scholarship-search" type="text" placeholder="e.g. DAAD">
@@ -192,12 +249,12 @@
                     <label for="scholarship-country">Country code</label>
                     <input id="scholarship-country" type="text" maxlength="2" placeholder="e.g. DE">
                 </div>
-                <button class="btn" type="button" onclick="searchScholarships()">Search</button>
+                <button class="btn" type="button" onclick="searchScholarships()" data-i18n="search">Search</button>
                 <div id="scholarship-results" aria-live="polite" style="margin-top:12px;font-size:.8rem;color:#cbd5e1;line-height:1.5"></div>
             </div>
 
             <div class="card">
-                <div class="card-title">Visa requirements</div>
+                <div class="card-title" data-i18n="card_visa">Visa requirements</div>
                 <div class="input-group">
                     <label for="visa-destination">Destination country code</label>
                     <input id="visa-destination" type="text" maxlength="2" placeholder="e.g. DE">
@@ -206,12 +263,12 @@
                     <label for="visa-applicant">Your nationality (optional)</label>
                     <input id="visa-applicant" type="text" maxlength="2" placeholder="e.g. IN">
                 </div>
-                <button class="btn" type="button" onclick="searchVisaRequirements()">Search</button>
+                <button class="btn" type="button" onclick="searchVisaRequirements()" data-i18n="search">Search</button>
                 <div id="visa-results" aria-live="polite" style="margin-top:12px;font-size:.8rem;color:#cbd5e1;line-height:1.5"></div>
             </div>
 
             <div class="card">
-                <div class="card-title">Student accommodation</div>
+                <div class="card-title" data-i18n="card_accommodation">Student accommodation</div>
                 <div class="input-group">
                     <label for="accommodation-city">City</label>
                     <input id="accommodation-city" type="text" placeholder="e.g. Munich">
@@ -220,12 +277,12 @@
                     <label for="accommodation-max-rent">Max monthly rent (EUR)</label>
                     <input id="accommodation-max-rent" type="number" min="0" placeholder="e.g. 700">
                 </div>
-                <button class="btn" type="button" onclick="searchAccommodations()">Search</button>
+                <button class="btn" type="button" onclick="searchAccommodations()" data-i18n="search">Search</button>
                 <div id="accommodation-results" aria-live="polite" style="margin-top:12px;font-size:.8rem;color:#cbd5e1;line-height:1.5"></div>
             </div>
 
             <div class="card">
-                <div class="card-title">Support &amp; Resources</div>
+                <div class="card-title" data-i18n="card_support">Support &amp; Resources</div>
                 <p style="font-size:.8rem;color:#cbd5e1;line-height:1.4">Free, legitimate help for students who can't afford a paid agent, a test fee, or a scholarship consultant — advising networks, test/application fee waivers, and refugee-specific credential support.</p>
                 <div class="input-group">
                     <label for="support-category">Category</label>
@@ -239,24 +296,50 @@
                         <option value="EMERGENCY_FUND">Emergency fund</option>
                         <option value="MENTAL_HEALTH">Mental health</option>
                         <option value="LEGAL_AID">Legal aid</option>
+                        <option value="PEER_MENTORSHIP">Peer mentorship / chat with a student</option>
                     </select>
                 </div>
                 <div class="input-group">
                     <label for="support-country">Destination country code (optional)</label>
                     <input id="support-country" type="text" maxlength="2" placeholder="e.g. US">
                 </div>
-                <button class="btn" type="button" onclick="searchSupportResources()">Search</button>
+                <button class="btn" type="button" onclick="searchSupportResources()" data-i18n="search">Search</button>
                 <div id="support-results" aria-live="polite" style="margin-top:12px;font-size:.8rem;color:#cbd5e1;line-height:1.5"></div>
             </div>
 
             <div class="card">
-                <div class="card-title">My Applications</div>
-                <button class="btn" type="button" onclick="loadApplications()">Refresh</button>
+                <div class="card-title" data-i18n="card_my_applications">My Applications</div>
+                <button class="btn" type="button" onclick="loadApplications()" data-i18n="refresh">Refresh</button>
                 <div id="applications-list" aria-live="polite" style="margin-top:12px;font-size:.8rem;color:#cbd5e1;line-height:1.5"></div>
             </div>
 
             <div class="card">
-                <div class="card-title">Recommendation request</div>
+                <div class="card-title" data-i18n="card_my_documents">My Documents</div>
+                <p style="font-size:.8rem;color:#cbd5e1;line-height:1.4">Track dates for documents you hold (e.g. IELTS score, passport) so nothing expires without warning — no file upload, just the dates and notes you enter yourself.</p>
+                <div class="input-group">
+                    <label for="document-type">Document type</label>
+                    <input id="document-type" type="text" placeholder="e.g. IELTS">
+                </div>
+                <div class="input-group">
+                    <label for="document-label">Label (optional)</label>
+                    <input id="document-label" type="text" placeholder="e.g. IELTS Academic 7.5">
+                </div>
+                <div class="input-group">
+                    <label for="document-obtained">Obtained on (optional)</label>
+                    <input id="document-obtained" type="date">
+                </div>
+                <div class="input-group">
+                    <label for="document-expires">Expires on (optional)</label>
+                    <input id="document-expires" type="date">
+                </div>
+                <button class="btn" type="button" onclick="addStudentDocument()" data-i18n="save_document">Save document</button>
+                <div id="add-document-status" role="status" aria-live="polite" style="margin-top:8px;font-size:.8rem;color:#cbd5e1"></div>
+                <button class="btn" type="button" style="margin-top:8px" onclick="loadStudentDocuments()" data-i18n="refresh_list">Refresh list</button>
+                <div id="documents-list" aria-live="polite" style="margin-top:12px;font-size:.8rem;color:#cbd5e1;line-height:1.5"></div>
+            </div>
+
+            <div class="card">
+                <div class="card-title" data-i18n="card_recommendation">Recommendation request</div>
                 <div class="input-group">
                     <label for="professor-name">Professor Name</label>
                     <input id="professor-name" type="text" placeholder="Professor name">
@@ -266,22 +349,109 @@
                     <input id="professor-email" type="email" placeholder="name@university.edu">
                 </div>
                 <p style="font-size:.8rem;color:#cbd5e1;line-height:1.4">Email sending is disabled until a verified institution and email provider are configured.</p>
-                <button class="btn" type="button" onclick="showLORNotice()">Prepare request</button>
+                <button class="btn" type="button" onclick="showLORNotice()" data-i18n="prepare_request">Prepare request</button>
             </div>
 
             <div class="card">
-                <div class="card-title">Statement readiness check</div>
+                <div class="card-title" data-i18n="card_statement">Statement readiness check</div>
                 <div class="input-group">
                     <label for="statement">SOP Draft Excerpt</label>
                     <textarea id="statement" rows="4" style="resize:none" placeholder="Paste a short statement draft. The tool only highlights wording to review; it does not rewrite facts or predict outcomes."></textarea>
                 </div>
-                <button class="btn" type="button" onclick="reviewStatement()">Review statement</button>
+                <button class="btn" type="button" onclick="reviewStatement()" data-i18n="review_statement">Review statement</button>
                 <div id="review-result" role="status" aria-live="polite" style="font-size:.8rem;color:#cbd5e1;line-height:1.5;margin-top:12px"></div>
             </div>
         </main>
     </div>
 
     <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch(() => { /* offline shell is a progressive enhancement, not required */ });
+        });
+      }
+
+      const translations = {
+        en: {
+          app_title: 'Students-Ecosystem', language_label: 'Language', currency_label: 'Display costs in', skip_link: 'Skip to main content',
+          card_account: 'Account', register: 'Register', login: 'Log in',
+          card_my_profile: 'My Profile', save_profile: 'Save profile',
+          card_find_matches: 'Find My Matches', find_matches_button: 'Find my matches',
+          card_find_university: 'Find a university', search: 'Search',
+          card_scholarships: 'Scholarships', card_visa: 'Visa requirements', card_accommodation: 'Student accommodation',
+          card_support: 'Support & Resources', card_my_applications: 'My Applications', refresh: 'Refresh',
+          card_my_documents: 'My Documents', save_document: 'Save document', refresh_list: 'Refresh list',
+          card_recommendation: 'Recommendation request', prepare_request: 'Prepare request',
+          card_statement: 'Statement readiness check', review_statement: 'Review statement',
+          save: 'Save', update: 'Update', add: 'Add', remove: 'Remove',
+          check_eligibility: 'Check my eligibility & cost', add_to_applications: 'Add to my applications', save_deadline: 'Save deadline',
+        },
+        fr: {
+          app_title: 'Students-Ecosystem', language_label: 'Langue', currency_label: 'Afficher les coûts en', skip_link: 'Aller au contenu principal',
+          card_account: 'Compte', register: "S'inscrire", login: 'Se connecter',
+          card_my_profile: 'Mon profil', save_profile: 'Enregistrer le profil',
+          card_find_matches: 'Trouver mes correspondances', find_matches_button: 'Trouver mes correspondances',
+          card_find_university: 'Trouver une université', search: 'Rechercher',
+          card_scholarships: 'Bourses', card_visa: 'Exigences de visa', card_accommodation: 'Logement étudiant',
+          card_support: 'Aide & ressources', card_my_applications: 'Mes candidatures', refresh: 'Actualiser',
+          card_my_documents: 'Mes documents', save_document: 'Enregistrer le document', refresh_list: 'Actualiser la liste',
+          card_recommendation: 'Demande de recommandation', prepare_request: 'Préparer la demande',
+          card_statement: 'Vérification de la lettre de motivation', review_statement: 'Vérifier la lettre',
+          save: 'Enregistrer', update: 'Mettre à jour', add: 'Ajouter', remove: 'Supprimer',
+          check_eligibility: 'Vérifier mon éligibilité et le coût', add_to_applications: 'Ajouter à mes candidatures', save_deadline: "Enregistrer l'échéance",
+        },
+        ar: {
+          app_title: 'Students-Ecosystem', language_label: 'اللغة', currency_label: 'عرض التكاليف بعملة', skip_link: 'الانتقال إلى المحتوى الرئيسي',
+          card_account: 'الحساب', register: 'إنشاء حساب', login: 'تسجيل الدخول',
+          card_my_profile: 'ملفي الشخصي', save_profile: 'حفظ الملف الشخصي',
+          card_find_matches: 'أفضل الخيارات لي', find_matches_button: 'ابحث عن أفضل الخيارات',
+          card_find_university: 'ابحث عن جامعة', search: 'بحث',
+          card_scholarships: 'المنح الدراسية', card_visa: 'متطلبات التأشيرة', card_accommodation: 'سكن الطلاب',
+          card_support: 'الدعم والموارد', card_my_applications: 'طلباتي', refresh: 'تحديث',
+          card_my_documents: 'مستنداتي', save_document: 'حفظ المستند', refresh_list: 'تحديث القائمة',
+          card_recommendation: 'طلب توصية', prepare_request: 'تجهيز الطلب',
+          card_statement: 'مراجعة جاهزية خطاب الدافع', review_statement: 'مراجعة الخطاب',
+          save: 'حفظ', update: 'تحديث', add: 'إضافة', remove: 'إزالة',
+          check_eligibility: 'تحقق من أهليتي والتكلفة', add_to_applications: 'أضف إلى طلباتي', save_deadline: 'حفظ الموعد النهائي',
+        },
+        es: {
+          app_title: 'Students-Ecosystem', language_label: 'Idioma', currency_label: 'Mostrar costos en', skip_link: 'Saltar al contenido principal',
+          card_account: 'Cuenta', register: 'Registrarse', login: 'Iniciar sesión',
+          card_my_profile: 'Mi perfil', save_profile: 'Guardar perfil',
+          card_find_matches: 'Encontrar mis opciones', find_matches_button: 'Buscar mis opciones',
+          card_find_university: 'Buscar una universidad', search: 'Buscar',
+          card_scholarships: 'Becas', card_visa: 'Requisitos de visa', card_accommodation: 'Alojamiento estudiantil',
+          card_support: 'Apoyo y recursos', card_my_applications: 'Mis solicitudes', refresh: 'Actualizar',
+          card_my_documents: 'Mis documentos', save_document: 'Guardar documento', refresh_list: 'Actualizar lista',
+          card_recommendation: 'Solicitud de recomendación', prepare_request: 'Preparar solicitud',
+          card_statement: 'Revisión de la carta de motivación', review_statement: 'Revisar la carta',
+          save: 'Guardar', update: 'Actualizar', add: 'Añadir', remove: 'Eliminar',
+          check_eligibility: 'Verificar mi elegibilidad y costo', add_to_applications: 'Añadir a mis solicitudes', save_deadline: 'Guardar fecha límite',
+        },
+      };
+
+      let currentLanguage = 'en';
+
+      function t(key) {
+        return (translations[currentLanguage] && translations[currentLanguage][key]) || translations.en[key] || key;
+      }
+
+      function applyLanguage(lang) {
+        currentLanguage = translations[lang] ? lang : 'en';
+        document.documentElement.lang = currentLanguage;
+        document.documentElement.dir = currentLanguage === 'ar' ? 'rtl' : 'ltr';
+        document.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.getAttribute('data-i18n')); });
+        const select = document.getElementById('language-select');
+        if (select) select.value = currentLanguage;
+        try { localStorage.setItem('se_lang', currentLanguage); } catch (_error) { /* ignore */ }
+      }
+
+      (function initLanguage() {
+        let stored = null;
+        try { stored = localStorage.getItem('se_lang'); } catch (_error) { /* ignore */ }
+        applyLanguage(stored || 'en');
+      })();
+
       function showLORNotice() {
         alert('The request workflow is intentionally disabled until the email service and secure upload portal are configured. No message has been sent.');
       }
@@ -308,8 +478,80 @@
             knownNationality = data.passport_country;
             const applicantInput = document.getElementById('visa-applicant');
             if (applicantInput && !applicantInput.value) applicantInput.value = data.passport_country;
+            const nationalityInput = document.getElementById('profile-nationality');
+            if (nationalityInput && !nationalityInput.value) nationalityInput.value = data.passport_country;
           }
+          const cgpaInput = document.getElementById('profile-cgpa');
+          if (cgpaInput && data.cgpa_percentage != null) cgpaInput.value = data.cgpa_percentage;
+          const fundsInput = document.getElementById('profile-funds');
+          if (fundsInput && data.liquid_funds_eur != null) fundsInput.value = data.liquid_funds_eur;
         } catch (_error) { /* ignore — personalization is optional */ }
+      }
+
+      async function saveProfile() {
+        const token = getToken();
+        const statusEl = document.getElementById('profile-status');
+        if (!token) { statusEl.textContent = 'Please log in first.'; return; }
+        statusEl.textContent = 'Saving…';
+        try {
+          const meResponse = await fetch('/api/v1/me/profile', { headers: { Authorization: `Bearer ${token}` } });
+          const me = await meResponse.json();
+          if (!meResponse.ok) throw new Error(me.error || 'Could not load your account.');
+          const passportCountry = document.getElementById('profile-nationality').value.toUpperCase() || null;
+          const cgpaPercentage = document.getElementById('profile-cgpa').value || null;
+          const liquidFundsEur = document.getElementById('profile-funds').value || null;
+          const response = await fetch('/api/v1/me/profile', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`},
+            body: JSON.stringify({ fullName: me.full_name, email: me.email, passportCountry, cgpaPercentage, liquidFundsEur }),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Could not save profile.');
+          statusEl.textContent = 'Profile saved.';
+        } catch (error) {
+          statusEl.textContent = error.message;
+        }
+      }
+
+      function renderMatch(m) {
+        const academicColor = m.academic.status === 'MEETS_STATED_MINIMUM' ? '#4ade80' : m.academic.status === 'BELOW_STATED_MINIMUM' ? '#f87171' : '#94a3b8';
+        return `
+          <div class="card" style="margin-bottom:8px;cursor:pointer" onclick="showUniversityByProgram('${m.program_id}')">
+            <div style="font-weight:bold">${escapeHtml(m.title)}</div>
+            <div>${escapeHtml(m.university_name)} · ${escapeHtml(m.country_code)}</div>
+            <div style="color:${academicColor}">Academic: ${escapeHtml(m.academic.status)}</div>
+            <div>Est. net annual cost if awarded: ${formatMoney(m.estimated_net_annual_cost_if_awarded_eur)}</div>
+          </div>`;
+      }
+
+      async function showUniversityByProgram(programId) {
+        document.getElementById('program-details').innerHTML = '';
+        document.getElementById('university-results').innerHTML = '';
+        await showProgram(programId);
+        document.getElementById('program-details').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+
+      async function findMatches() {
+        const token = getToken();
+        const resultsEl = document.getElementById('matches-results');
+        if (!token) { resultsEl.textContent = 'Please log in and save your profile first.'; return; }
+        resultsEl.textContent = 'Finding matches…';
+        const params = new URLSearchParams();
+        const budget = document.getElementById('matches-budget').value;
+        const country = document.getElementById('matches-country').value;
+        const degree = document.getElementById('matches-degree').value;
+        if (budget) params.set('maxBudgetEur', budget);
+        if (country) params.set('countryCode', country);
+        if (degree) params.set('degreeLevel', degree);
+        try {
+          const response = await fetch(`/api/v1/matches?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Could not load matches.');
+          if (!data.matches.length) { resultsEl.textContent = 'No matching programmes found — try widening your filters.'; return; }
+          resultsEl.innerHTML = data.matches.map((m) => renderMatch(m)).join('') + `<div style="color:#94a3b8;margin-top:8px">${escapeHtml(data.caveat)}</div>`;
+        } catch (error) {
+          resultsEl.textContent = error.message;
+        }
       }
 
       async function registerAccount() {
@@ -504,8 +746,8 @@
               </div>`).join('') : '') +
             (scholarships.length ? `<div style="font-weight:bold;margin:12px 0 6px">Scholarships for this programme</div>` + scholarships.map((s) => renderScholarship(s)).join('') : '') +
             (getToken() ? `<div style="margin-top:12px">
-                <button class="btn" type="button" onclick="checkEligibility('${programId}')">Check my eligibility &amp; cost</button>
-                <button class="btn" type="button" onclick="addToApplications('${programId}')">Add to my applications</button>
+                <button class="btn" type="button" onclick="checkEligibility('${programId}')">${t('check_eligibility')}</button>
+                <button class="btn" type="button" onclick="addToApplications('${programId}')">${t('add_to_applications')}</button>
                 <div id="eligibility-result" style="margin-top:8px"></div>
                 <div id="add-application-result" style="margin-top:8px;color:#94a3b8"></div>
               </div>` : '<div style="margin-top:12px;color:#94a3b8">Log in to check your eligibility, estimated cost, and track this application.</div>');
@@ -587,6 +829,8 @@
         return `<div style="color:${color};font-weight:bold">Deadline: ${escapeHtml(deadlineAt)} (${label})</div>`;
       }
 
+      const DOCUMENT_STATUS_OPTIONS = ['NOT_STARTED', 'IN_PROGRESS', 'READY', 'SUBMITTED', 'NOT_REQUIRED'];
+
       function renderApplication(a) {
         const statusOptions = ['DRAFT', 'DOCUMENTS_IN_PROGRESS', 'SUBMITTED', 'OFFER_RECEIVED', 'DECLINED', 'WITHDRAWN'];
         const documents = a.documents || [];
@@ -596,17 +840,32 @@
             <div>${escapeHtml(a.university_name)} · ${escapeHtml(a.country_code)}</div>
             <div>Status: ${escapeHtml(a.submission_status)}</div>
             ${renderDeadline(a.deadline_at)}
-            ${documents.length ? `<div>Documents: ${documents.map((d) => `${escapeHtml(d.document_type)} (${escapeHtml(d.status)})`).join(', ')}</div>` : ''}
             <div style="margin-top:6px">
               <select id="status-select-${a.application_id}" aria-label="Application status for ${escapeHtml(a.program_title)}">
                 ${statusOptions.map((s) => `<option value="${s}"${s === a.submission_status ? ' selected' : ''}>${s}</option>`).join('')}
               </select>
-              <button class="btn" type="button" onclick="updateApplicationStatus('${a.application_id}')">Update</button>
+              <button class="btn" type="button" onclick="updateApplicationStatus('${a.application_id}')">${t('update')}</button>
             </div>
             <div style="margin-top:6px">
               <label for="deadline-input-${a.application_id}" style="font-size:.75rem;color:#94a3b8;display:block;margin-bottom:2px">Set/update deadline</label>
               <input id="deadline-input-${a.application_id}" type="date" value="${a.deadline_at ? escapeHtml(a.deadline_at).slice(0, 10) : ''}">
-              <button class="btn" type="button" onclick="updateApplicationDeadline('${a.application_id}')">Save deadline</button>
+              <button class="btn" type="button" onclick="updateApplicationDeadline('${a.application_id}')">${t('save_deadline')}</button>
+            </div>
+            <div style="margin-top:8px;border-top:1px solid #334155;padding-top:6px">
+              <div style="font-size:.75rem;color:#94a3b8;margin-bottom:4px">Documents</div>
+              ${documents.map((d) => `
+                <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:4px">
+                  <span>${escapeHtml(d.document_type)}${d.due_at ? ` (due ${escapeHtml(String(d.due_at).slice(0, 10))})` : ''}</span>
+                  <select id="doc-status-${d.document_id}" aria-label="Status for ${escapeHtml(d.document_type)}">
+                    ${DOCUMENT_STATUS_OPTIONS.map((s) => `<option value="${s}"${s === d.status ? ' selected' : ''}>${s}</option>`).join('')}
+                  </select>
+                  <button class="btn" type="button" onclick="updateDocumentStatus('${a.application_id}','${d.document_id}')">${t('save')}</button>
+                </div>`).join('')}
+              <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px">
+                <label for="add-doc-${a.application_id}" style="font-size:.75rem;color:#94a3b8">Add a document to track</label>
+                <input id="add-doc-${a.application_id}" type="text" placeholder="e.g. Motivation letter" style="max-width:160px">
+                <button class="btn" type="button" onclick="addApplicationDocument('${a.application_id}')">${t('add')}</button>
+              </div>
             </div>
           </div>`;
       }
@@ -655,6 +914,117 @@
           });
           if (!response.ok) { const data = await response.json(); throw new Error(data.error || 'Could not update deadline.'); }
           loadApplications();
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      async function updateDocumentStatus(applicationId, documentId) {
+        const token = getToken();
+        const select = document.getElementById(`doc-status-${documentId}`);
+        if (!token || !select) return;
+        try {
+          const response = await fetch(`/api/v1/applications/${applicationId}/documents/${documentId}`, {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`},
+            body: JSON.stringify({status: select.value}),
+          });
+          if (!response.ok) { const data = await response.json(); throw new Error(data.error || 'Could not update document status.'); }
+          loadApplications();
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      async function addApplicationDocument(applicationId) {
+        const token = getToken();
+        const input = document.getElementById(`add-doc-${applicationId}`);
+        if (!token || !input || !input.value.trim()) return;
+        try {
+          const response = await fetch(`/api/v1/applications/${applicationId}/documents`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`},
+            body: JSON.stringify({type: input.value.trim()}),
+          });
+          if (!response.ok) { const data = await response.json(); throw new Error(data.error || 'Could not add document.'); }
+          loadApplications();
+        } catch (error) {
+          alert(error.message);
+        }
+      }
+
+      function renderStudentDocument(d) {
+        let expiryLine = '<div style="color:#94a3b8">No expiry date set</div>';
+        if (d.expires_at) {
+          const days = Math.ceil((new Date(d.expires_at) - new Date()) / (1000 * 60 * 60 * 24));
+          const color = days < 0 ? '#f87171' : days <= 60 ? '#fbbf24' : '#cbd5e1';
+          const label = days < 0 ? `expired ${Math.abs(days)} day(s) ago` : `expires in ${days} day(s)`;
+          expiryLine = `<div style="color:${color}">Expires: ${escapeHtml(String(d.expires_at).slice(0, 10))} (${label})</div>`;
+        }
+        return `
+          <div style="margin-bottom:10px;border-top:1px solid #334155;padding-top:8px">
+            <div style="font-weight:bold">${escapeHtml(d.label || d.document_type)}</div>
+            <div>${escapeHtml(d.document_type)}</div>
+            ${d.obtained_at ? `<div style="color:#94a3b8">Obtained: ${escapeHtml(String(d.obtained_at).slice(0, 10))}</div>` : ''}
+            ${expiryLine}
+            ${d.notes ? `<div style="color:#94a3b8">${escapeHtml(d.notes)}</div>` : ''}
+            <button class="btn" type="button" onclick="deleteStudentDocument('${d.student_document_id}')">${t('remove')}</button>
+          </div>`;
+      }
+
+      async function loadStudentDocuments() {
+        const listEl = document.getElementById('documents-list');
+        const token = getToken();
+        if (!token) { listEl.textContent = 'Log in to track your documents.'; return; }
+        listEl.textContent = 'Loading…';
+        try {
+          const response = await fetch('/api/v1/me/documents', { headers: { Authorization: `Bearer ${token}` } });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Could not load documents.');
+          listEl.innerHTML = data.length ? data.map((d) => renderStudentDocument(d)).join('') : 'No documents tracked yet.';
+        } catch (error) {
+          listEl.textContent = error.message;
+        }
+      }
+
+      async function addStudentDocument() {
+        const token = getToken();
+        const statusEl = document.getElementById('add-document-status');
+        if (!token) { statusEl.textContent = 'Please log in first.'; return; }
+        const documentType = document.getElementById('document-type').value.trim();
+        const label = document.getElementById('document-label').value.trim();
+        const obtainedAt = document.getElementById('document-obtained').value || null;
+        const expiresAt = document.getElementById('document-expires').value || null;
+        if (!documentType) { statusEl.textContent = 'Document type is required.'; return; }
+        statusEl.textContent = 'Saving…';
+        try {
+          const response = await fetch('/api/v1/me/documents', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`},
+            body: JSON.stringify({documentType, label: label || null, obtainedAt, expiresAt}),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Could not save document.');
+          statusEl.textContent = 'Saved.';
+          document.getElementById('document-type').value = '';
+          document.getElementById('document-label').value = '';
+          document.getElementById('document-obtained').value = '';
+          document.getElementById('document-expires').value = '';
+          loadStudentDocuments();
+        } catch (error) {
+          statusEl.textContent = error.message;
+        }
+      }
+
+      async function deleteStudentDocument(studentDocumentId) {
+        const token = getToken();
+        if (!token) return;
+        try {
+          const response = await fetch(`/api/v1/me/documents/${studentDocumentId}`, {
+            method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+          });
+          if (!response.ok) { const data = await response.json(); throw new Error(data.error || 'Could not remove document.'); }
+          loadStudentDocuments();
         } catch (error) {
           alert(error.message);
         }

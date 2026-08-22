@@ -1,0 +1,12 @@
+{
+  "name": "Students-Ecosystem",
+  "short_name": "StudentsEco",
+  "description": "Search universities, scholarships, visas, fees, and accommodation with every fact sourced — built to work on a slow connection.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

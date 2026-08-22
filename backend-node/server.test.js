@@ -303,6 +303,65 @@ test('GET /api/v1/universities/:id passes the nationality filter through to the 
   server.close();
 });
 
+test('GET /api/v1/matches ranks programmes against the student profile', async () => {
+  const pool = mockPool((text) => {
+    if (/FROM users WHERE user_id/.test(text)) {
+      return { rows: [{ cgpa_percentage: 85, liquid_funds_eur: 15000 }] };
+    }
+    return {
+      rows: [
+        {
+          program_id: 'p1', title: 'M.Sc. CS', degree_level: 'MASTER', field_of_study: 'Computer Science',
+          university_name: 'LMU Munich', country_code: 'DE',
+          minimum_cgpa_percentage: 70, official_funds_requirement_eur: 11208,
+          source_url: 'https://example.edu/requirements', source_checked_on: '2026-01-01',
+          estimated_annual_tuition_eur: 0, one_time_fees_eur: 0, total_potential_scholarship_value_eur: 0,
+        },
+        {
+          program_id: 'p2', title: 'M.Sc. Data Science', degree_level: 'MASTER', field_of_study: 'Data Science',
+          university_name: 'Some University', country_code: 'DE',
+          minimum_cgpa_percentage: 95, official_funds_requirement_eur: 11208,
+          source_url: 'https://example.edu/requirements2', source_checked_on: '2026-01-01',
+          estimated_annual_tuition_eur: 0, one_time_fees_eur: 0, total_potential_scholarship_value_eur: 0,
+        },
+      ],
+    };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/matches`, { headers: { Authorization: `Bearer ${token}` } });
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data.matches.length, 2);
+  assert.equal(data.matches[0].program_id, 'p1');
+  assert.equal(data.matches[0].academic.status, 'MEETS_STATED_MINIMUM');
+  assert.equal(data.matches[1].academic.status, 'BELOW_STATED_MINIMUM');
+  server.close();
+});
+
+test('GET /api/v1/matches returns 404 when the student profile is missing', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/matches`, { headers: { Authorization: `Bearer ${token}` } });
+  assert.equal(response.status, 404);
+  server.close();
+});
+
+test('GET /api/v1/matches requires authentication', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/matches`);
+  assert.equal(response.status, 401);
+  server.close();
+});
+
 test('computeCostView returns null when no fee rows exist for the programme', async () => {
   const pool = mockPool(() => ({ rows: [] }));
   const cost = await computeCostView(pool, 'p1');
@@ -435,6 +494,135 @@ test('PATCH /api/v1/applications/:id/deadline rejects an invalid date', async ()
     body: JSON.stringify({ deadlineAt: 'not-a-date' }),
   });
   assert.equal(response.status, 400);
+  server.close();
+});
+
+test('POST /api/v1/applications/:id/documents adds a checklist item to an existing application', async () => {
+  const pool = mockPool((text) => {
+    if (/SELECT 1 FROM applications_tracker/.test(text)) return { rows: [{}] };
+    return { rowCount: 1 };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/applications/app1/documents`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ type: 'TRANSCRIPT', sourceUrl: 'https://example.edu/requirements' }),
+  });
+  assert.equal(response.status, 201);
+  server.close();
+});
+
+test('POST /api/v1/applications/:id/documents returns 404 when the application is not owned by the caller', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/applications/app1/documents`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ type: 'TRANSCRIPT' }),
+  });
+  assert.equal(response.status, 404);
+  server.close();
+});
+
+test('PATCH /api/v1/applications/:id/documents/:documentId updates status', async () => {
+  const pool = mockPool((text, params) => {
+    assert.deepEqual(params, ['READY', false, null, null, 'doc1', 'app1', 'u1']);
+    return { rowCount: 1 };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/applications/app1/documents/doc1`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ status: 'READY' }),
+  });
+  assert.equal(response.status, 204);
+  server.close();
+});
+
+test('PATCH /api/v1/applications/:id/documents/:documentId rejects an invalid status', async () => {
+  const pool = mockPool(() => ({ rowCount: 1 }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/applications/app1/documents/doc1`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ status: 'NOT_A_STATUS' }),
+  });
+  assert.equal(response.status, 400);
+  server.close();
+});
+
+test('GET /api/v1/me/documents lists the caller\'s tracked documents', async () => {
+  const pool = mockPool(() => ({ rows: [{ student_document_id: 'd1', document_type: 'IELTS', expires_at: '2028-01-01' }] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/me/documents`, { headers: { Authorization: `Bearer ${token}` } });
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data[0].document_type, 'IELTS');
+  server.close();
+});
+
+test('POST /api/v1/me/documents creates a personal document record', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/me/documents`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ documentType: 'IELTS', obtainedAt: '2026-01-01', expiresAt: '2028-01-01' }),
+  });
+  assert.equal(response.status, 201);
+  server.close();
+});
+
+test('POST /api/v1/me/documents rejects a missing documentType', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/me/documents`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({}),
+  });
+  assert.equal(response.status, 400);
+  server.close();
+});
+
+test('DELETE /api/v1/me/documents/:id removes a personal document record', async () => {
+  const pool = mockPool(() => ({ rowCount: 1 }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/me/documents/d1`, {
+    method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+  });
+  assert.equal(response.status, 204);
+  server.close();
+});
+
+test('DELETE /api/v1/me/documents/:id returns 404 when not found', async () => {
+  const pool = mockPool(() => ({ rowCount: 0 }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/me/documents/d1`, {
+    method: 'DELETE', headers: { Authorization: `Bearer ${token}` },
+  });
+  assert.equal(response.status, 404);
   server.close();
 });
 

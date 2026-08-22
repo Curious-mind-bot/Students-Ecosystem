@@ -178,6 +178,109 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
     }
   });
 
+  app.get('/api/v1/matches', authRequired, async (req, res) => {
+    const { rows: userRows } = await pool.query(
+      'SELECT cgpa_percentage, liquid_funds_eur FROM users WHERE user_id = $1', [req.user.id],
+    );
+    if (!userRows[0]) return res.status(404).json({ error: 'Student profile not found.' });
+    const profile = userRows[0];
+
+    const conditions = [];
+    const params = [];
+    if (req.query.countryCode) {
+      params.push(String(req.query.countryCode).toUpperCase());
+      conditions.push(`u.country_code = $${params.length}`);
+    }
+    if (req.query.degreeLevel) {
+      params.push(String(req.query.degreeLevel).toUpperCase());
+      conditions.push(`p.degree_level = $${params.length}`);
+    }
+    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+
+    const { rows: candidateRows } = await pool.query(
+      `SELECT p.program_id, p.title, p.degree_level, p.field_of_study,
+              u.name AS university_name, u.country_code,
+              req.minimum_cgpa_percentage, req.official_funds_requirement_eur, req.source_url, req.source_checked_on,
+              COALESCE(fee.estimated_annual_tuition_eur, 0) AS estimated_annual_tuition_eur,
+              COALESCE(fee.one_time_fees_eur, 0) AS one_time_fees_eur,
+              COALESCE(sch.total_potential_scholarship_value_eur, 0) AS total_potential_scholarship_value_eur
+       FROM academic_programs p
+       JOIN universities u ON u.university_id = p.university_id
+       LEFT JOIN LATERAL (
+         SELECT minimum_cgpa_percentage, official_funds_requirement_eur, source_url, source_checked_on
+         FROM admission_requirements ar WHERE ar.program_id = p.program_id
+         ORDER BY source_checked_on DESC LIMIT 1
+       ) req ON true
+       LEFT JOIN LATERAL (
+         SELECT SUM(amount_eur) FILTER (WHERE fee_type IN ('TUITION_PER_YEAR', 'ADMINISTRATIVE_FEE')) AS estimated_annual_tuition_eur,
+                SUM(amount_eur) FILTER (WHERE fee_type = 'APPLICATION_FEE') AS one_time_fees_eur
+         FROM program_fees WHERE program_id = p.program_id AND student_category = 'INTERNATIONAL'
+       ) fee ON true
+       LEFT JOIN LATERAL (
+         SELECT SUM(amount_eur) AS total_potential_scholarship_value_eur FROM scholarships WHERE program_id = p.program_id
+       ) sch ON true
+       ${whereClause}
+       ORDER BY u.name, p.title`,
+      params,
+    );
+
+    let evaluations;
+    try {
+      evaluations = await runPython({
+        action: 'evaluate_candidates',
+        profile,
+        candidates: candidateRows.map((row) => ({
+          program_id: row.program_id,
+          requirements: {
+            minimum_cgpa_percentage: row.minimum_cgpa_percentage,
+            official_funds_requirement_eur: row.official_funds_requirement_eur,
+            source_url: row.source_url,
+            source_checked_on: row.source_checked_on,
+          },
+        })),
+      });
+    } catch (_error) {
+      return res.status(503).json({ error: 'The matching engine is temporarily unavailable.' });
+    }
+    const evaluationByProgramId = new Map(evaluations.map((evaluation) => [evaluation.program_id, evaluation]));
+    const maxBudgetEur = req.query.maxBudgetEur !== undefined ? Number(req.query.maxBudgetEur) : null;
+    const rank = (academicStatus) => (academicStatus === 'MEETS_STATED_MINIMUM' ? 0 : academicStatus === 'BELOW_STATED_MINIMUM' ? 2 : 1);
+
+    const matches = candidateRows
+      .map((row) => {
+        const evaluation = evaluationByProgramId.get(row.program_id) || {};
+        const estimatedNetAnnualCostIfAwardedEur = Math.max(
+          0, Number(row.estimated_annual_tuition_eur) - Number(row.total_potential_scholarship_value_eur),
+        );
+        return {
+          program_id: row.program_id,
+          title: row.title,
+          degree_level: row.degree_level,
+          field_of_study: row.field_of_study,
+          university_name: row.university_name,
+          country_code: row.country_code,
+          estimated_annual_tuition_eur: Number(row.estimated_annual_tuition_eur),
+          one_time_fees_eur: Number(row.one_time_fees_eur),
+          total_potential_scholarship_value_eur: Number(row.total_potential_scholarship_value_eur),
+          estimated_net_annual_cost_if_awarded_eur: estimatedNetAnnualCostIfAwardedEur,
+          academic: evaluation.academic || { status: 'NOT_COMPARED' },
+          funding: evaluation.funding || { status: 'NOT_COMPARED' },
+        };
+      })
+      .filter((match) => maxBudgetEur === null || Number.isNaN(maxBudgetEur)
+        || match.estimated_annual_tuition_eur === 0 || match.estimated_net_annual_cost_if_awarded_eur <= maxBudgetEur)
+      .sort((a, b) => {
+        const rankDiff = rank(a.academic.status) - rank(b.academic.status);
+        return rankDiff !== 0 ? rankDiff : a.estimated_net_annual_cost_if_awarded_eur - b.estimated_net_annual_cost_if_awarded_eur;
+      });
+
+    return res.json({
+      matches,
+      caveat: 'Ranked from your self-reported CGPA/funds against the most recently checked official requirement on file. '
+        + 'Programmes with no sourced requirement or fee data are still listed, marked as not compared — always confirm directly with the university.',
+    });
+  });
+
   app.get('/api/v1/universities', async (req, res) => {
     const { search, country } = req.query;
     const conditions = [];
@@ -458,6 +561,83 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
     return rowCount ? res.status(204).end() : res.status(404).json({ error: 'Application not found.' });
   });
 
+  app.post('/api/v1/applications/:applicationId/documents', authRequired, async (req, res) => {
+    const { type, sourceUrl, status, dueAt, notes } = req.body || {};
+    if (!type || (status && !DOCUMENT_STATUSES.has(status))) {
+      return res.status(400).json({ error: 'A document type (and a valid status, if provided) is required.' });
+    }
+    const { rows: applicationRows } = await pool.query(
+      'SELECT 1 FROM applications_tracker WHERE application_id = $1 AND user_id = $2', [req.params.applicationId, req.user.id],
+    );
+    if (!applicationRows[0]) return res.status(404).json({ error: 'Application not found.' });
+    const documentId = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO application_documents (document_id, application_id, document_type, requirement_source_url, status, due_at, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [documentId, req.params.applicationId, type, sourceUrl || null, status || 'NOT_STARTED', dueAt || null, notes || null],
+    );
+    return res.status(201).json({ documentId });
+  });
+
+  app.patch('/api/v1/applications/:applicationId/documents/:documentId', authRequired, async (req, res) => {
+    const { status, dueAt, notes } = req.body || {};
+    if (status !== undefined && !DOCUMENT_STATUSES.has(status)) return res.status(400).json({ error: 'Invalid document status.' });
+    if (dueAt !== undefined && dueAt !== null && Number.isNaN(Date.parse(dueAt))) return res.status(400).json({ error: 'dueAt must be a valid date or null.' });
+    const { rowCount } = await pool.query(
+      `UPDATE application_documents d SET
+         status = COALESCE($1, d.status), due_at = CASE WHEN $2::boolean THEN $3::date ELSE d.due_at END,
+         notes = COALESCE($4, d.notes), updated_at = now()
+       FROM applications_tracker a
+       WHERE d.application_id = a.application_id AND d.document_id = $5 AND d.application_id = $6 AND a.user_id = $7`,
+      [status || null, dueAt !== undefined, dueAt ?? null, notes ?? null, req.params.documentId, req.params.applicationId, req.user.id],
+    );
+    return rowCount ? res.status(204).end() : res.status(404).json({ error: 'Document not found.' });
+  });
+
+  app.get('/api/v1/me/documents', authRequired, async (req, res) => {
+    const { rows } = await pool.query(
+      'SELECT * FROM student_documents WHERE user_id = $1 ORDER BY expires_at NULLS LAST, document_type', [req.user.id],
+    );
+    res.json(rows);
+  });
+
+  app.post('/api/v1/me/documents', authRequired, async (req, res) => {
+    const { documentType, label, obtainedAt, expiresAt, notes } = req.body || {};
+    if (!documentType) return res.status(400).json({ error: 'documentType is required.' });
+    if (obtainedAt && Number.isNaN(Date.parse(obtainedAt))) return res.status(400).json({ error: 'obtainedAt must be a valid date.' });
+    if (expiresAt && Number.isNaN(Date.parse(expiresAt))) return res.status(400).json({ error: 'expiresAt must be a valid date.' });
+    const studentDocumentId = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO student_documents (student_document_id, user_id, document_type, label, obtained_at, expires_at, notes)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [studentDocumentId, req.user.id, documentType, label || null, obtainedAt || null, expiresAt || null, notes || null],
+    );
+    return res.status(201).json({ studentDocumentId });
+  });
+
+  app.patch('/api/v1/me/documents/:studentDocumentId', authRequired, async (req, res) => {
+    const { label, obtainedAt, expiresAt, notes } = req.body || {};
+    if (obtainedAt !== undefined && obtainedAt !== null && Number.isNaN(Date.parse(obtainedAt))) return res.status(400).json({ error: 'obtainedAt must be a valid date or null.' });
+    if (expiresAt !== undefined && expiresAt !== null && Number.isNaN(Date.parse(expiresAt))) return res.status(400).json({ error: 'expiresAt must be a valid date or null.' });
+    const { rowCount } = await pool.query(
+      `UPDATE student_documents SET
+         label = COALESCE($1, label),
+         obtained_at = CASE WHEN $2::boolean THEN $3::date ELSE obtained_at END,
+         expires_at = CASE WHEN $4::boolean THEN $5::date ELSE expires_at END,
+         notes = COALESCE($6, notes), updated_at = now()
+       WHERE student_document_id = $7 AND user_id = $8`,
+      [label || null, obtainedAt !== undefined, obtainedAt ?? null, expiresAt !== undefined, expiresAt ?? null, notes ?? null, req.params.studentDocumentId, req.user.id],
+    );
+    return rowCount ? res.status(204).end() : res.status(404).json({ error: 'Document not found.' });
+  });
+
+  app.delete('/api/v1/me/documents/:studentDocumentId', authRequired, async (req, res) => {
+    const { rowCount } = await pool.query(
+      'DELETE FROM student_documents WHERE student_document_id = $1 AND user_id = $2', [req.params.studentDocumentId, req.user.id],
+    );
+    return rowCount ? res.status(204).end() : res.status(404).json({ error: 'Document not found.' });
+  });
+
   app.post('/api/v1/lor/requests', authRequired, async (req, res) => {
     const { professorName, professorEmail, universityAffiliation } = req.body || {};
     if (!professorName || !professorEmail || !universityAffiliation) return res.status(400).json({ error: 'Professor name, email, and affiliation are required.' });
@@ -534,4 +714,4 @@ if (require.main === module) {
   app.listen(port, () => console.log(`Students-Ecosystem running on http://localhost:${port}`));
 }
 
-module.exports = { createApp, runPython, hashPassword, verifyPassword, computeCostView };
+module.exports = { createApp, runPython, hashPassword, verifyPassword, computeCostView, createMailer };

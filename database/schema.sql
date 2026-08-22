@@ -40,6 +40,22 @@ CREATE TABLE application_documents (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- A student's personal document registry (e.g. IELTS score, passport) tracked
+-- by metadata only — obtained/expiry dates and notes, no file storage. Actual
+-- uploads are intentionally out of scope until a secure storage/retention
+-- policy exists (see application_documents and professor_lor_requests below).
+CREATE TABLE student_documents (
+    student_document_id UUID PRIMARY KEY,
+    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    document_type VARCHAR(80) NOT NULL,
+    label VARCHAR(150),
+    obtained_at DATE,
+    expires_at DATE,
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE TABLE professor_lor_requests (
     request_id UUID PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
@@ -69,6 +85,7 @@ CREATE TABLE partner_conversions (
 
 CREATE INDEX applications_user_id_idx ON applications_tracker(user_id);
 CREATE INDEX application_documents_application_id_idx ON application_documents(application_id);
+CREATE INDEX student_documents_user_id_idx ON student_documents(user_id);
 CREATE INDEX lor_token_hash_idx ON professor_lor_requests(token_hash);
 
 -- Module: university/college search & admission requirements.
@@ -363,7 +380,7 @@ CREATE TABLE support_resources (
     name VARCHAR(200) NOT NULL,
     provider VARCHAR(200) NOT NULL,
     category VARCHAR(30) NOT NULL
-        CHECK (category IN ('FREE_ADVISING', 'TEST_FEE_WAIVER', 'APPLICATION_FEE_WAIVER', 'REFUGEE_SUPPORT', 'CREDENTIAL_RECOVERY', 'EMERGENCY_FUND', 'MENTAL_HEALTH', 'LEGAL_AID')),
+        CHECK (category IN ('FREE_ADVISING', 'TEST_FEE_WAIVER', 'APPLICATION_FEE_WAIVER', 'REFUGEE_SUPPORT', 'CREDENTIAL_RECOVERY', 'EMERGENCY_FUND', 'MENTAL_HEALTH', 'LEGAL_AID', 'PEER_MENTORSHIP')),
     country_code CHAR(2),
     description TEXT NOT NULL,
     eligibility_notes TEXT,
@@ -387,6 +404,19 @@ INSERT INTO support_resources (resource_id, name, provider, category, country_co
     ('2b3c4d5e-0001-4b1b-9c1b-000000000001', 'EducationUSA Advising Centers', 'U.S. Department of State', 'FREE_ADVISING', 'US', 'A US government network of 430+ advising centers in 175+ countries and territories giving free, accurate, unbiased guidance on US admissions, accredited/SEVP-certified colleges, and the visa process — the intended alternative to a paid education agent.', 'Free for all international students; centers are located in embassies/consulates or partner institutions (Fulbright commissions, NGOs like AMIDEAST and American Councils, universities, libraries). Find your nearest center on the official site.', 'https://educationusa.state.gov/find-advising-center', NULL, 'https://educationusa.state.gov/educationusa-advising-centers', '2026-08-22', 'Advising is free; it does not itself fund tuition or fees — pair with a needs-based scholarship such as Fulbright.'),
     ('2b3c4d5e-0002-4b1b-9c1b-000000000002', 'Duolingo English Test Access Program', 'Duolingo', 'TEST_FEE_WAIVER', NULL, 'Distributes 10,000+ full fee waivers a year for the Duolingo English Test, the language-proficiency test accepted by thousands of universities worldwide, plus free official prep materials, to students who could not otherwise afford the test fee.', 'A student cannot apply directly — a school counselor or an official at a partner institution, NGO, or global education program must request the waiver on the student''s behalf. Prioritizes low-income, refugee, and displaced applicants. Ask your target university''s international office or an EducationUSA/DAAD-type advising center whether they hold Access Program codes.', 'https://englishtest.duolingo.com/access', NULL, 'https://blog.englishtest.duolingo.com/duolingo-access-program', '2026-08-22', 'Since 2018 the program has distributed 117,000+ waivers (~$8M USD value); 25,563 waivers were given in 2024 alone, per Duolingo''s own program page.'),
     ('2b3c4d5e-0003-4b1b-9c1b-000000000003', 'Article 26 Backpack', 'UC Davis Article 26 Backpack initiative', 'CREDENTIAL_RECOVERY', NULL, 'A free, secure online platform (named for the UDHR''s right-to-education article) where refugees and other displaced students can store and share transcripts, diplomas, CVs, and video testimonials with universities, scholarship providers, and employers — including limited support to reconstruct or assess credentials when a student''s home institution or national records office is destroyed, inaccessible, or unable to issue documents.', 'Aimed at refugees and other forcibly displaced or at-risk students. Local "Backpack Guides" (often fellow students) can assist with uploading documents. Available in English, Arabic, Dari/Farsi, French, and Spanish.', 'https://backpack.ucdavis.edu/', NULL, 'https://globalaffairs.ucdavis.edu/a26backpack', '2026-08-22', 'Has reached 5,000+ student refugees worldwide as of the last published figures.');
+
+-- Peer mentorship / "chat with a current student" programmes. Researched
+-- against several universities already seeded above; only kept the two whose
+-- official page could actually be fetched and confirmed live on 2026-08-22.
+-- Programmes found at University of Nicosia, TU Dublin, University of
+-- Manchester, LMU Munich, the three Austrian universities, and the
+-- Erasmus Student Network buddy system were all either unconfirmable from a
+-- live official page, out of scope (staff/alumni networking rather than a
+-- prospective-student chat), or restricted to already-admitted students —
+-- omitted rather than guessed at; can be added once independently confirmed.
+INSERT INTO support_resources (resource_id, name, provider, category, country_code, description, eligibility_notes, application_url, contact_email, source_url, source_checked_on, notes) VALUES
+    ('2b3c4d5e-0004-4b1b-9c1b-000000000004', 'Chat with a Student', 'TU Delft', 'PEER_MENTORSHIP', 'NL', 'Lets prospective bachelor''s and master''s applicants message a current TU Delft student directly to ask about a programme, studying and living in Delft, and student life before applying.', 'Free and open to prospective applicants; no admission decision or enrollment required first. Students aim to reply within 24 hours.', 'https://www.tudelft.nl/en/education/study-programme-orientation/preparing-for-a-bachelor/chat-with-a-student', NULL, 'https://www.tudelft.nl/en/education/study-programme-orientation/preparing-for-a-bachelor/chat-with-a-student', '2026-08-22', NULL),
+    ('2b3c4d5e-0005-4b1b-9c1b-000000000005', 'Talk to a Current Student (Student Ambassadors)', 'European University Cyprus', 'PEER_MENTORSHIP', 'CY', 'A student-ambassador program connecting prospective students with current European University Cyprus students for informal advice on courses, housing, and student life before applying.', 'No eligibility restriction stated on the official page.', NULL, 'nicosia@euc.ac.cy', 'https://euc.ac.cy/en/student-ambassadors/', '2026-08-22', 'The fetched page did not surface a direct chat link — it lists the Nicosia campus contact (nicosia@euc.ac.cy, +357 22713000) and a Frankfurt campus contact (frankfurt@euc.ac.cy, +49 69 210855800) instead.');
 
 -- Additional seed universities (added 2026-08-22, second batch): Cyprus and
 -- Austria, part of growing coverage toward the requested 32-country /
