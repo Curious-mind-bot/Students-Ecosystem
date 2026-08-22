@@ -10,10 +10,11 @@ A safety-first, end-to-end ecosystem for planning an international study applica
 - **Fees & cost of living** — application/tuition fees per programme, plus country/university cost-of-living estimates.
 - **Visa requirements** — destination-country study/residence permit facts, optionally narrowed by nationality.
 - **Accommodation** — university-linked dorm/private-hall listings with rent, deposit, and distance.
+- **Support & Resources** — free advising networks, test/application fee waivers, and refugee-specific credential-recovery programs (e.g. EducationUSA, the Duolingo English Test Access Program, Article 26 Backpack), plus globally-open need-based scholarships (Chevening, Fulbright, UNHCR's DAFI programme) for students who can't afford a paid agent or a test fee.
 - An honest statement-readiness check that suggests review areas but never changes a student's facts.
 - A guarded recommendation-request placeholder that never sends an email.
 
-Every requirement/scholarship/fee/visa/accommodation record in the schema requires a `source_url` and `source_checked_on` — the app refuses to state a funding, admission, or visa fact without one.
+Every requirement/scholarship/fee/visa/accommodation/support-resource record in the schema requires a `source_url` and `source_checked_on` — the app refuses to state a funding, admission, visa, or support fact without one.
 
 ## Not included
 

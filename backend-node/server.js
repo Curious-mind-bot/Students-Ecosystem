@@ -344,6 +344,31 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
     return rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Accommodation not found.' });
   });
 
+  app.get('/api/v1/support-resources', async (req, res) => {
+    const { category, country } = req.query;
+    const conditions = [];
+    const params = [];
+    if (category) {
+      params.push(String(category).toUpperCase());
+      conditions.push(`category = $${params.length}`);
+    }
+    if (country) {
+      params.push(String(country).toUpperCase());
+      conditions.push(`(country_code = $${params.length} OR country_code IS NULL)`);
+    }
+    const whereClause = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    const { rows } = await pool.query(
+      `SELECT * FROM support_resources ${whereClause} ORDER BY category, name LIMIT 50`,
+      params,
+    );
+    res.json(rows);
+  });
+
+  app.get('/api/v1/support-resources/:resourceId', async (req, res) => {
+    const { rows } = await pool.query('SELECT * FROM support_resources WHERE resource_id = $1', [req.params.resourceId]);
+    return rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Support resource not found.' });
+  });
+
   app.get('/api/v1/me/profile', authRequired, async (req, res) => {
     const { rows } = await pool.query(
       'SELECT user_id, full_name, email, passport_country, cgpa_percentage, liquid_funds_eur FROM users WHERE user_id = $1',

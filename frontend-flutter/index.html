@@ -187,6 +187,31 @@
             </div>
 
             <div class="card">
+                <div class="card-title">Support &amp; Resources</div>
+                <p style="font-size:.8rem;color:#cbd5e1;line-height:1.4">Free, legitimate help for students who can't afford a paid agent, a test fee, or a scholarship consultant — advising networks, test/application fee waivers, and refugee-specific credential support.</p>
+                <div class="input-group">
+                    <label>Category</label>
+                    <select id="support-category">
+                        <option value="">Any category</option>
+                        <option value="FREE_ADVISING">Free advising</option>
+                        <option value="TEST_FEE_WAIVER">Test fee waiver</option>
+                        <option value="APPLICATION_FEE_WAIVER">Application fee waiver</option>
+                        <option value="REFUGEE_SUPPORT">Refugee support</option>
+                        <option value="CREDENTIAL_RECOVERY">Credential recovery</option>
+                        <option value="EMERGENCY_FUND">Emergency fund</option>
+                        <option value="MENTAL_HEALTH">Mental health</option>
+                        <option value="LEGAL_AID">Legal aid</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label>Destination country code (optional)</label>
+                    <input id="support-country" type="text" maxlength="2" placeholder="e.g. US">
+                </div>
+                <button class="btn" type="button" onclick="searchSupportResources()">Search</button>
+                <div id="support-results" style="margin-top:12px;font-size:.8rem;color:#cbd5e1;line-height:1.5"></div>
+            </div>
+
+            <div class="card">
                 <div class="card-title">My Applications</div>
                 <button class="btn" type="button" onclick="loadApplications()">Refresh</button>
                 <div id="applications-list" style="margin-top:12px;font-size:.8rem;color:#cbd5e1;line-height:1.5"></div>
@@ -613,6 +638,36 @@
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || 'Search failed.');
           resultsEl.innerHTML = data.length ? data.map((a) => renderAccommodation(a)).join('') : 'No accommodation matched.';
+        } catch (error) {
+          resultsEl.textContent = error.message;
+        }
+      }
+
+      function renderSupportResource(r) {
+        return `
+          <div style="margin-bottom:10px;border-top:1px solid #334155;padding-top:8px">
+            <div style="font-weight:bold">${escapeHtml(r.name)}</div>
+            <div>${escapeHtml(r.provider)} · ${escapeHtml(r.category)}${r.country_code ? ` · ${escapeHtml(r.country_code)}` : ' · Global'}</div>
+            <div>${escapeHtml(r.description)}</div>
+            ${r.eligibility_notes ? `<div style="color:#94a3b8">Eligibility: ${escapeHtml(r.eligibility_notes)}</div>` : ''}
+            ${r.application_url ? `<div><a href="${escapeHtml(r.application_url)}" target="_blank" rel="noopener">Apply / learn more</a></div>` : ''}
+            <div style="color:#94a3b8">Source: <a href="${escapeHtml(r.source_url)}" target="_blank" rel="noopener">${escapeHtml(r.source_url)}</a> (checked ${escapeHtml(r.source_checked_on)})</div>
+          </div>`;
+      }
+
+      async function searchSupportResources() {
+        const category = document.getElementById('support-category').value;
+        const country = document.getElementById('support-country').value;
+        const resultsEl = document.getElementById('support-results');
+        resultsEl.textContent = 'Searching…';
+        const params = new URLSearchParams();
+        if (category) params.set('category', category);
+        if (country) params.set('country', country);
+        try {
+          const response = await fetch(`/api/v1/support-resources?${params.toString()}`);
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Search failed.');
+          resultsEl.innerHTML = data.length ? data.map((r) => renderSupportResource(r)).join('') : 'No support resources matched.';
         } catch (error) {
           resultsEl.textContent = error.message;
         }

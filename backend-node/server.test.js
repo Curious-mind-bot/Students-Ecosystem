@@ -128,6 +128,45 @@ test('GET /api/v1/scholarships/:id returns the record when found', async () => {
   server.close();
 });
 
+test('GET /api/v1/support-resources filters by category and country', async () => {
+  const pool = mockPool((text, params) => {
+    assert.match(text, /category = \$1/);
+    assert.match(text, /country_code = \$2 OR country_code IS NULL/);
+    assert.deepEqual(params, ['TEST_FEE_WAIVER', 'US']);
+    return { rows: [{ resource_id: '1', name: 'Duolingo English Test Access Program', category: 'TEST_FEE_WAIVER' }] };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/support-resources?category=test_fee_waiver&country=us`);
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data[0].name, 'Duolingo English Test Access Program');
+  server.close();
+});
+
+test('GET /api/v1/support-resources/:id returns 404 when missing', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/support-resources/does-not-exist`);
+  assert.equal(response.status, 404);
+  server.close();
+});
+
+test('GET /api/v1/support-resources/:id returns the record when found', async () => {
+  const pool = mockPool(() => ({ rows: [{ resource_id: '1', name: 'EducationUSA Advising Centers' }] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/support-resources/1`);
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data.name, 'EducationUSA Advising Centers');
+  server.close();
+});
+
 test('GET /api/v1/living-costs filters by country, city, and universityId', async () => {
   const pool = mockPool((text, params) => {
     assert.match(text, /country_code = \$1/);

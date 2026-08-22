@@ -335,3 +335,55 @@ INSERT INTO living_cost_estimates (estimate_id, country_code, city, university_i
 INSERT INTO student_accommodations (accommodation_id, university_id, accommodation_type, provider_name, city, monthly_rent_eur, deposit_eur, distance_to_university_km, amenities, application_url, contact_email, source_url, source_checked_on, notes) VALUES
     ('f2ce2ee5-db4e-4206-a8a8-1b9cbc2a8039', '742fe519-872b-4bc6-b17d-40944021636f', 'UNIVERSITY_DORM', 'Graduate House (University of Toronto)', 'Toronto', 910.74, 311.06, NULL, ARRAY['furnished', 'wifi', 'all_utilities_included', 'shared_kitchen'], 'https://gradhouse.utoronto.ca/', 'information.gradhouse@utoronto.ca', 'https://gradhouse.utoronto.ca/fees-2026-27/', '2026-08-22', 'On-campus graduate-only residence at 60 Harbord Street — no distance-to-campus figure applies since it is directly on the St. George campus (left NULL rather than guessed). Rent shown is the official 2026-27 Economy Single rate (CAD 1,463.93/month); Double CAD 1,208.05, Regular Single CAD 1,581.52, and Premium Single CAD 1,766.03/month are also available. A CAD 350 application fee applies to all, and the CAD 500 damage deposit shown applies only to non-University of Toronto students. Converted to EUR using the ECB reference rate (1 EUR = 1.6074 CAD, 2026-08-21). Verify current CAD rates directly.'),
     ('a59da7a0-6d6f-445b-a9ce-f2239634dbaf', '87c1705f-1721-4d4b-8936-3230cc128a2e', 'UNIVERSITY_DORM', 'Ashburne Hall (University of Manchester)', 'Manchester', 814.37, NULL, 2.57, ARRAY['furnished', 'wifi', 'bills_included', 'laundry', 'bike_storage'], 'https://www.manchester.ac.uk/study/accommodation/student-accommodation/search/ashburne-hall/', 'accommodation@manchester.ac.uk', 'https://www.manchester.ac.uk/study/accommodation/student-accommodation/search/ashburne-hall/', '2026-08-22', 'Rent shown is the official 2026/27 postgraduate 51-week Standard Room rate (GBP 161/week, converted to a monthly figure using 52/12 weeks-per-month, then to EUR at the ECB reference rate 1 EUR = 0.8567 GBP, 2026-08-21). A postgraduate 51-week Super Single is also available at GBP 181/week; standard 41-week undergraduate contracts range GBP 178–198/week. Distance is ~1.6 miles (converted to km) from University Place (main campus), per the official page. Security deposit amount is not published on the official page and is left NULL rather than guessed.');
+
+-- Global, need-based scholarships (added 2026-08-22). Unlike the university-tied
+-- scholarships above, these are large, well-known, globally-open funding
+-- programmes explicitly aimed at students who could not otherwise afford to
+-- study abroad — the core of this project's mission to help students from
+-- under-resourced and displaced backgrounds reach their target degree. Amounts
+-- are intentionally left NULL where the provider varies the award by country
+-- or circumstance rather than publishing one figure, per this schema's
+-- never-guess rule.
+INSERT INTO scholarships (scholarship_id, name, provider, country_code, university_id, program_id, coverage_type, amount_eur, eligibility_notes, application_deadline, application_url, source_url, source_checked_on) VALUES
+    ('1a2b3c4d-0001-4a1a-9c1a-000000000001', 'Chevening Scholarship', 'UK Foreign, Commonwealth & Development Office (FCDO)', 'GB', NULL, NULL, 'FULL_FUNDING', NULL, 'UK government''s flagship global master''s scholarship: fully funds a one-year taught master''s at any UK university (tuition, living costs, and travel). Requires citizenship of a Chevening-eligible country (most of Asia, Africa, Latin America, and parts of Europe are covered — check the official country list, since eligibility is NOT global), a completed bachelor''s degree, and at least two years (2,800 hours) of work experience; scholars must return to their home country for at least two years afterward. Selection is based on leadership, networking, career plan, and study proposal — not financial need specifically, but it removes the entire cost barrier for admitted students from eligible countries.', '2026-10-06', 'https://www.chevening.org/apply/', 'https://www.chevening.org/scholarship/india/', '2026-08-22'),
+    ('1a2b3c4d-0002-4a1a-9c1a-000000000002', 'Fulbright Foreign Student Program', 'U.S. Department of State / Bureau of Educational and Cultural Affairs', 'US', NULL, NULL, 'FULL_FUNDING', NULL, 'Fully funds graduate study or research in the US (tuition, airfare, living stipend, health insurance) for ~4,000 international students per year. Eligibility, exact benefits, deadlines, and application process are set per country by the local Fulbright Commission or the U.S. Embassy''s Public Affairs Section (49 countries have a binational Commission; others are run directly by the embassy) — applicants must find and apply through their own country''s Fulbright page via the official portal, not a single global form. No age limit; applicants may not simultaneously hold US citizenship/permanent residency.', NULL, 'https://foreign.fulbrightonline.org/apply', 'https://foreign.fulbrightonline.org/about/foreign-student-program', '2026-08-22'),
+    ('1a2b3c4d-0003-4a1a-9c1a-000000000003', 'DAFI Tertiary Scholarship Programme (Albert Einstein German Academic Refugee Initiative)', 'UNHCR, funded principally by the Government of Germany', NULL, NULL, NULL, 'FULL_FUNDING', NULL, 'Specifically for recognized refugees and returnees (not open to the general public) to pursue an undergraduate degree, normally in their country of asylum or home country. Active in 59 countries; has supported 27,200+ students since 1992. Coverage (tuition, study materials, food, transport, accommodation) and the exact application process vary by country and are run through the local UNHCR country office, not a single global application form — a student should contact their nearest UNHCR office or national partner to check current eligibility and deadlines. Country_code is left NULL because the programme is not tied to one destination country; it funds study wherever the student has asylum or is returning to.', NULL, NULL, 'https://www.unhcr.org/what-we-do/build-better-futures/education/higher-education-and-skills/dafi-tertiary-scholarship-0', '2026-08-22');
+
+-- Module: support & resources. Not every barrier a student from an
+-- under-resourced or displaced background faces is a scholarship, admission
+-- requirement, or visa rule — some are simply not knowing free, legitimate
+-- help exists (a real advising office instead of a paid "consultancy"; a fee
+-- waiver instead of an unaffordable test fee; a way to prove your own
+-- transcript exists when your home country's records office is destroyed or
+-- inaccessible). This table exists to surface exactly those, each with the
+-- same NOT NULL sourcing rule as every other factual module — a made-up
+-- "free help" listing would be worse than none at all.
+CREATE TABLE support_resources (
+    resource_id UUID PRIMARY KEY,
+    name VARCHAR(200) NOT NULL,
+    provider VARCHAR(200) NOT NULL,
+    category VARCHAR(30) NOT NULL
+        CHECK (category IN ('FREE_ADVISING', 'TEST_FEE_WAIVER', 'APPLICATION_FEE_WAIVER', 'REFUGEE_SUPPORT', 'CREDENTIAL_RECOVERY', 'EMERGENCY_FUND', 'MENTAL_HEALTH', 'LEGAL_AID')),
+    country_code CHAR(2),
+    description TEXT NOT NULL,
+    eligibility_notes TEXT,
+    application_url TEXT,
+    contact_email VARCHAR(254),
+    source_url TEXT NOT NULL,
+    source_checked_on DATE NOT NULL,
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX support_resources_category_idx ON support_resources(category);
+CREATE INDEX support_resources_country_code_idx ON support_resources(country_code);
+
+-- Real, currently operating programmes only, each checked live on 2026-08-22
+-- against an official/authoritative source. country_code is the destination
+-- the resource is most relevant to, or NULL when the resource is genuinely
+-- global and not tied to one destination.
+INSERT INTO support_resources (resource_id, name, provider, category, country_code, description, eligibility_notes, application_url, contact_email, source_url, source_checked_on, notes) VALUES
+    ('2b3c4d5e-0001-4b1b-9c1b-000000000001', 'EducationUSA Advising Centers', 'U.S. Department of State', 'FREE_ADVISING', 'US', 'A US government network of 430+ advising centers in 175+ countries and territories giving free, accurate, unbiased guidance on US admissions, accredited/SEVP-certified colleges, and the visa process — the intended alternative to a paid education agent.', 'Free for all international students; centers are located in embassies/consulates or partner institutions (Fulbright commissions, NGOs like AMIDEAST and American Councils, universities, libraries). Find your nearest center on the official site.', 'https://educationusa.state.gov/find-advising-center', NULL, 'https://educationusa.state.gov/educationusa-advising-centers', '2026-08-22', 'Advising is free; it does not itself fund tuition or fees — pair with a needs-based scholarship such as Fulbright.'),
+    ('2b3c4d5e-0002-4b1b-9c1b-000000000002', 'Duolingo English Test Access Program', 'Duolingo', 'TEST_FEE_WAIVER', NULL, 'Distributes 10,000+ full fee waivers a year for the Duolingo English Test, the language-proficiency test accepted by thousands of universities worldwide, plus free official prep materials, to students who could not otherwise afford the test fee.', 'A student cannot apply directly — a school counselor or an official at a partner institution, NGO, or global education program must request the waiver on the student''s behalf. Prioritizes low-income, refugee, and displaced applicants. Ask your target university''s international office or an EducationUSA/DAAD-type advising center whether they hold Access Program codes.', 'https://englishtest.duolingo.com/access', NULL, 'https://blog.englishtest.duolingo.com/duolingo-access-program', '2026-08-22', 'Since 2018 the program has distributed 117,000+ waivers (~$8M USD value); 25,563 waivers were given in 2024 alone, per Duolingo''s own program page.'),
+    ('2b3c4d5e-0003-4b1b-9c1b-000000000003', 'Article 26 Backpack', 'UC Davis Article 26 Backpack initiative', 'CREDENTIAL_RECOVERY', NULL, 'A free, secure online platform (named for the UDHR''s right-to-education article) where refugees and other displaced students can store and share transcripts, diplomas, CVs, and video testimonials with universities, scholarship providers, and employers — including limited support to reconstruct or assess credentials when a student''s home institution or national records office is destroyed, inaccessible, or unable to issue documents.', 'Aimed at refugees and other forcibly displaced or at-risk students. Local "Backpack Guides" (often fellow students) can assist with uploading documents. Available in English, Arabic, Dari/Farsi, French, and Spanish.', 'https://backpack.ucdavis.edu/', NULL, 'https://globalaffairs.ucdavis.edu/a26backpack', '2026-08-22', 'Has reached 5,000+ student refugees worldwide as of the last published figures.');
