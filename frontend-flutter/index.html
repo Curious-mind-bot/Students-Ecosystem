@@ -187,10 +187,9 @@
             </div>
 
             <div class="card">
-                <div class="card-title">Active Track</div>
-                <div style="font-size: 1.1rem; font-weight: bold; margin-bottom: 6px;">M.Sc. Computer Science</div>
-                <div style="font-size: 0.85rem; color: #cbd5e1; margin-bottom: 12px;">LMU Munich · Germany</div>
-                <div class="status-badge">🔄 Document Verification In-Progress</div>
+                <div class="card-title">My Applications</div>
+                <button class="btn" type="button" onclick="loadApplications()">Refresh</button>
+                <div id="applications-list" style="margin-top:12px;font-size:.8rem;color:#cbd5e1;line-height:1.5"></div>
             </div>
 
             <div class="card">
@@ -224,12 +223,30 @@
         alert('The request workflow is intentionally disabled until the email service and secure upload portal are configured. No message has been sent.');
       }
 
+      let knownNationality = null;
+      let currentProgramData = null;
+
       function getToken() {
         try { return localStorage.getItem('se_token'); } catch (_error) { return null; }
       }
 
       function setToken(token) {
         try { localStorage.setItem('se_token', token); } catch (_error) { /* ignore */ }
+      }
+
+      async function loadProfile() {
+        const token = getToken();
+        if (!token) return;
+        try {
+          const response = await fetch('/api/v1/me/profile', { headers: { Authorization: `Bearer ${token}` } });
+          if (!response.ok) return;
+          const data = await response.json();
+          if (data.passport_country) {
+            knownNationality = data.passport_country;
+            const applicantInput = document.getElementById('visa-applicant');
+            if (applicantInput && !applicantInput.value) applicantInput.value = data.passport_country;
+          }
+        } catch (_error) { /* ignore — personalization is optional */ }
       }
 
       async function registerAccount() {
@@ -248,6 +265,7 @@
           if (!response.ok) throw new Error(data.error || 'Registration failed.');
           setToken(data.token);
           statusEl.textContent = `Signed in as ${data.user.email}`;
+          await loadProfile();
         } catch (error) {
           statusEl.textContent = error.message;
         }
@@ -268,6 +286,7 @@
           if (!response.ok) throw new Error(data.error || 'Sign in failed.');
           setToken(data.token);
           statusEl.textContent = `Signed in as ${data.user.email}`;
+          await loadProfile();
         } catch (error) {
           statusEl.textContent = error.message;
         }
@@ -328,7 +347,9 @@
         const detailsEl = document.getElementById('program-details');
         detailsEl.textContent = 'Loading programmes…';
         try {
-          const response = await fetch(`/api/v1/universities/${universityId}`);
+          const nationality = knownNationality || document.getElementById('visa-applicant').value;
+          const params = nationality ? `?nationality=${encodeURIComponent(nationality)}` : '';
+          const response = await fetch(`/api/v1/universities/${universityId}${params}`);
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || 'Could not load university.');
           const livingCosts = data.living_cost_estimates || [];
@@ -362,6 +383,7 @@
           const response = await fetch(`/api/v1/programs/${programId}`);
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || 'Could not load programme.');
+          currentProgramData = data;
           const requirements = data.admission_requirements || [];
           const scholarships = data.scholarships || [];
           const fees = data.fees || [];
@@ -378,9 +400,130 @@
                 <div>${escapeHtml(f.fee_type)} (${escapeHtml(f.student_category)}): €${f.amount_eur}</div>
                 <div style="color:#94a3b8">Source: <a href="${escapeHtml(f.source_url)}" target="_blank" rel="noopener">${escapeHtml(f.source_url)}</a> (checked ${escapeHtml(f.source_checked_on)})</div>
               </div>`).join('') : '') +
-            (scholarships.length ? `<div style="font-weight:bold;margin:12px 0 6px">Scholarships for this programme</div>` + scholarships.map((s) => renderScholarship(s)).join('') : '');
+            (scholarships.length ? `<div style="font-weight:bold;margin:12px 0 6px">Scholarships for this programme</div>` + scholarships.map((s) => renderScholarship(s)).join('') : '') +
+            (getToken() ? `<div style="margin-top:12px">
+                <button class="btn" type="button" onclick="checkEligibility('${programId}')">Check my eligibility &amp; cost</button>
+                <button class="btn" type="button" onclick="addToApplications('${programId}')">Add to my applications</button>
+                <div id="eligibility-result" style="margin-top:8px"></div>
+                <div id="add-application-result" style="margin-top:8px;color:#94a3b8"></div>
+              </div>` : '<div style="margin-top:12px;color:#94a3b8">Log in to check your eligibility, estimated cost, and track this application.</div>');
         } catch (error) {
           detailsEl.textContent = error.message;
+        }
+      }
+
+      async function checkEligibility(programId) {
+        const resultEl = document.getElementById('eligibility-result');
+        const token = getToken();
+        if (!resultEl || !token) return;
+        resultEl.textContent = 'Checking…';
+        try {
+          const response = await fetch('/api/v1/readiness/eligibility', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`},
+            body: JSON.stringify({programId})
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Eligibility check failed.');
+          const cost = data.cost;
+          resultEl.innerHTML = `
+            <div style="border-top:1px solid #334155;padding-top:8px">
+              <div>Status: ${escapeHtml(data.status)}</div>
+              ${data.academic && data.academic.status !== 'NOT_COMPARED' ? `<div>Academic: ${escapeHtml(data.academic.status)}</div>` : ''}
+              ${data.funding && data.funding.status !== 'NOT_COMPARED' ? `<div>Funding: ${escapeHtml(data.funding.status)}${data.funding.potential_shortfall_eur ? ` (potential shortfall €${data.funding.potential_shortfall_eur})` : ''}</div>` : ''}
+              ${cost ? `
+                <div style="font-weight:bold;margin-top:8px">Estimated cost</div>
+                <div>Annual tuition: €${cost.estimated_annual_tuition_eur}</div>
+                <div>One-time fees: €${cost.one_time_fees_eur}</div>
+                <div>Potential scholarship value: €${cost.total_potential_scholarship_value_eur}</div>
+                <div>Estimated net annual cost if awarded: €${cost.estimated_net_annual_cost_if_awarded_eur}</div>
+                <div style="color:#94a3b8">${escapeHtml(cost.caveat)}</div>` : ''}
+              <div style="color:#94a3b8;margin-top:6px">${escapeHtml(data.disclaimer || '')}</div>
+            </div>`;
+        } catch (error) {
+          resultEl.textContent = error.message;
+        }
+      }
+
+      async function addToApplications(programId) {
+        const statusEl = document.getElementById('add-application-result');
+        const token = getToken();
+        const data = currentProgramData;
+        if (!statusEl || !token || !data || data.program_id !== programId) return;
+        statusEl.textContent = 'Adding…';
+        const latestRequirement = (data.admission_requirements || [])[0];
+        const documents = latestRequirement ? (latestRequirement.required_documents || []).map((docType) => ({
+          type: docType,
+          sourceUrl: latestRequirement.source_url,
+        })) : [];
+        try {
+          const response = await fetch('/api/v1/applications', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`},
+            body: JSON.stringify({
+              countryCode: data.country_code,
+              universityName: data.university_name,
+              programTitle: data.title,
+              programmeUrl: data.programme_url,
+              documents,
+            }),
+          });
+          const result = await response.json();
+          if (!response.ok) throw new Error(result.error || 'Could not add this programme to your applications.');
+          statusEl.textContent = 'Added to My Applications.';
+          loadApplications();
+        } catch (error) {
+          statusEl.textContent = error.message;
+        }
+      }
+
+      function renderApplication(a) {
+        const statusOptions = ['DRAFT', 'DOCUMENTS_IN_PROGRESS', 'SUBMITTED', 'OFFER_RECEIVED', 'DECLINED', 'WITHDRAWN'];
+        const documents = a.documents || [];
+        return `
+          <div style="margin-bottom:10px;border-top:1px solid #334155;padding-top:8px">
+            <div style="font-weight:bold">${escapeHtml(a.program_title)}</div>
+            <div>${escapeHtml(a.university_name)} · ${escapeHtml(a.country_code)}</div>
+            <div>Status: ${escapeHtml(a.submission_status)}</div>
+            ${documents.length ? `<div>Documents: ${documents.map((d) => `${escapeHtml(d.document_type)} (${escapeHtml(d.status)})`).join(', ')}</div>` : ''}
+            <div style="margin-top:6px">
+              <select id="status-select-${a.application_id}">
+                ${statusOptions.map((s) => `<option value="${s}"${s === a.submission_status ? ' selected' : ''}>${s}</option>`).join('')}
+              </select>
+              <button class="btn" type="button" onclick="updateApplicationStatus('${a.application_id}')">Update</button>
+            </div>
+          </div>`;
+      }
+
+      async function loadApplications() {
+        const listEl = document.getElementById('applications-list');
+        const token = getToken();
+        if (!token) { listEl.textContent = 'Log in to track applications.'; return; }
+        listEl.textContent = 'Loading…';
+        try {
+          const response = await fetch('/api/v1/applications', { headers: { Authorization: `Bearer ${token}` } });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Could not load applications.');
+          listEl.innerHTML = data.length ? data.map((a) => renderApplication(a)).join('') : 'No applications tracked yet.';
+        } catch (error) {
+          listEl.textContent = error.message;
+        }
+      }
+
+      async function updateApplicationStatus(applicationId) {
+        const token = getToken();
+        const select = document.getElementById(`status-select-${applicationId}`);
+        if (!token || !select) return;
+        try {
+          const response = await fetch(`/api/v1/applications/${applicationId}/status`, {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`},
+            body: JSON.stringify({status: select.value}),
+          });
+          if (!response.ok) { const data = await response.json(); throw new Error(data.error || 'Could not update status.'); }
+          loadApplications();
+        } catch (error) {
+          alert(error.message);
         }
       }
 
@@ -474,6 +617,8 @@
           resultsEl.textContent = error.message;
         }
       }
+
+      loadProfile();
     </script>
 </body>
 </html>

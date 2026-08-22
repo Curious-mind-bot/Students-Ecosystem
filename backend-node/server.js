@@ -47,6 +47,26 @@ function signToken(userId) {
   return jwt.sign({ sub: userId }, requireEnv('JWT_SECRET'), { algorithm: 'HS256', expiresIn: '7d' });
 }
 
+async function computeCostView(pool, programId) {
+  const { rows: feeRows } = await pool.query(
+    "SELECT fee_type, amount_eur FROM program_fees WHERE program_id = $1 AND student_category = 'INTERNATIONAL'",
+    [programId],
+  );
+  if (!feeRows.length) return null;
+  const sum = (types) => feeRows.filter((f) => types.includes(f.fee_type)).reduce((total, f) => total + Number(f.amount_eur), 0);
+  const estimatedAnnualTuitionEur = sum(['TUITION_PER_YEAR', 'ADMINISTRATIVE_FEE']);
+  const oneTimeFeesEur = sum(['APPLICATION_FEE']);
+  const { rows: scholarshipRows } = await pool.query('SELECT amount_eur FROM scholarships WHERE program_id = $1', [programId]);
+  const totalPotentialScholarshipValueEur = scholarshipRows.reduce((total, s) => total + Number(s.amount_eur || 0), 0);
+  return {
+    estimated_annual_tuition_eur: estimatedAnnualTuitionEur,
+    one_time_fees_eur: oneTimeFeesEur,
+    total_potential_scholarship_value_eur: totalPotentialScholarshipValueEur,
+    estimated_net_annual_cost_if_awarded_eur: Math.max(0, estimatedAnnualTuitionEur - totalPotentialScholarshipValueEur),
+    caveat: 'This assumes you receive every listed scholarship at once, which is unlikely — check eligibility criteria for each individually. Not an official cost figure.',
+  };
+}
+
 function runPython(payload) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.env.PYTHON_BIN || 'python3', [path.join(__dirname, '..', 'backend-python', 'match_engine.py')]);
@@ -147,7 +167,12 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
       requirements = requirementRows[0];
     }
     try {
-      return res.json(await runPython({ action: 'evaluate_profile', profile: rows[0], requirements }));
+      const result = await runPython({ action: 'evaluate_profile', profile: rows[0], requirements });
+      if (programId) {
+        const cost = await computeCostView(pool, programId);
+        if (cost) result.cost = cost;
+      }
+      return res.json(result);
     } catch (_error) {
       return res.status(503).json({ error: 'The eligibility checker is temporarily unavailable.' });
     }
@@ -174,17 +199,19 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
   });
 
   app.get('/api/v1/universities/:universityId', async (req, res) => {
+    const nationality = req.query.nationality ? String(req.query.nationality).toUpperCase() : null;
     const { rows } = await pool.query(
       `SELECT u.*, COALESCE(json_agg(p ORDER BY p.title) FILTER (WHERE p.program_id IS NOT NULL), '[]') AS programs,
        COALESCE((SELECT json_agg(l) FROM living_cost_estimates l
                  WHERE l.university_id = u.university_id OR (l.university_id IS NULL AND l.country_code = u.country_code)), '[]') AS living_cost_estimates,
        COALESCE((SELECT json_agg(v ORDER BY v.applicant_country_code NULLS FIRST) FROM visa_requirements v
-                 WHERE v.destination_country_code = u.country_code), '[]') AS visa_requirements,
+                 WHERE v.destination_country_code = u.country_code
+                 AND ($2::char(2) IS NULL OR v.applicant_country_code IS NULL OR v.applicant_country_code = $2)), '[]') AS visa_requirements,
        COALESCE((SELECT json_agg(a ORDER BY a.monthly_rent_eur) FROM student_accommodations a
                  WHERE a.university_id = u.university_id), '[]') AS accommodations
        FROM universities u LEFT JOIN academic_programs p ON p.university_id = u.university_id
        WHERE u.university_id = $1 GROUP BY u.university_id`,
-      [req.params.universityId],
+      [req.params.universityId, nationality],
     );
     return rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'University not found.' });
   });
@@ -317,6 +344,14 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
     return rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Accommodation not found.' });
   });
 
+  app.get('/api/v1/me/profile', authRequired, async (req, res) => {
+    const { rows } = await pool.query(
+      'SELECT user_id, full_name, email, passport_country, cgpa_percentage, liquid_funds_eur FROM users WHERE user_id = $1',
+      [req.user.id],
+    );
+    return rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Account not found.' });
+  });
+
   app.put('/api/v1/me/profile', authRequired, async (req, res) => {
     const { fullName, email, passportCountry, cgpaPercentage, liquidFundsEur } = req.body || {};
     if (!fullName || !email) return res.status(400).json({ error: 'fullName and email are required.' });
@@ -379,7 +414,7 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
     const { status } = req.body || {};
     if (!APPLICATION_STATUSES.has(status)) return res.status(400).json({ error: 'Invalid application status.' });
     const { rowCount } = await pool.query(
-      `UPDATE applications_tracker SET submission_status = $1, submitted_at = CASE WHEN $1 = 'SUBMITTED' THEN now() ELSE submitted_at END,
+      `UPDATE applications_tracker SET submission_status = $1::varchar(30), submitted_at = CASE WHEN $1::varchar(30) = 'SUBMITTED' THEN now() ELSE submitted_at END,
        updated_at = now() WHERE application_id = $2 AND user_id = $3`,
       [status, req.params.applicationId, req.user.id],
     );
@@ -462,4 +497,4 @@ if (require.main === module) {
   app.listen(port, () => console.log(`Students-Ecosystem running on http://localhost:${port}`));
 }
 
-module.exports = { createApp, runPython, hashPassword, verifyPassword };
+module.exports = { createApp, runPython, hashPassword, verifyPassword, computeCostView };

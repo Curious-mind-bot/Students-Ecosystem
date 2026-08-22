@@ -2,7 +2,7 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createApp, hashPassword } = require('./server');
+const { createApp, hashPassword, computeCostView } = require('./server');
 
 function mockPool(handler) {
   return { query: async (text, params) => handler(text, params), connect: async () => ({ query: async () => ({ rows: [] }), release() {} }) };
@@ -226,6 +226,67 @@ test('GET /api/v1/accommodations/:id returns the record when found', async () =>
   server.close();
 });
 
+test('GET /api/v1/me/profile returns the stored profile', async () => {
+  const pool = mockPool(() => ({ rows: [{ user_id: 'u1', full_name: 'Jane Student', email: 'jane@example.com', passport_country: 'IN', cgpa_percentage: 78, liquid_funds_eur: 12000 }] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/me/profile`, { headers: { Authorization: `Bearer ${token}` } });
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data.passport_country, 'IN');
+  server.close();
+});
+
+test('GET /api/v1/me/profile returns 404 when the account is missing', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'missing-user' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/me/profile`, { headers: { Authorization: `Bearer ${token}` } });
+  assert.equal(response.status, 404);
+  server.close();
+});
+
+test('GET /api/v1/universities/:id passes the nationality filter through to the query', async () => {
+  const pool = mockPool((text, params) => {
+    assert.match(text, /applicant_country_code = \$2/);
+    assert.deepEqual(params, ['1', 'IN']);
+    return { rows: [{ university_id: '1', name: 'LMU Munich', country_code: 'DE', programs: [], living_cost_estimates: [], visa_requirements: [], accommodations: [] }] };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/universities/1?nationality=in`);
+  assert.equal(response.status, 200);
+  server.close();
+});
+
+test('computeCostView returns null when no fee rows exist for the programme', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const cost = await computeCostView(pool, 'p1');
+  assert.equal(cost, null);
+});
+
+test('computeCostView sums tuition/fees/scholarships into a net-cost estimate', async () => {
+  let call = 0;
+  const pool = {
+    query: async () => {
+      call += 1;
+      if (call === 1) return { rows: [{ fee_type: 'TUITION_PER_YEAR', amount_eur: '20396.00' }, { fee_type: 'APPLICATION_FEE', amount_eur: '100.00' }] };
+      return { rows: [{ amount_eur: '3000.00' }, { amount_eur: '12000.00' }] };
+    },
+  };
+  const cost = await computeCostView(pool, 'p1');
+  assert.equal(cost.estimated_annual_tuition_eur, 20396);
+  assert.equal(cost.one_time_fees_eur, 100);
+  assert.equal(cost.total_potential_scholarship_value_eur, 15000);
+  assert.equal(cost.estimated_net_annual_cost_if_awarded_eur, 5396);
+  assert.equal(typeof cost.caveat, 'string');
+});
+
 test('PUT /api/v1/me/profile updates an existing account (not an upsert)', async () => {
   const pool = mockPool((text, params) => {
     assert.match(text, /UPDATE users SET/);
@@ -257,6 +318,38 @@ test('PUT /api/v1/me/profile returns 404 when the account no longer exists', asy
     body: JSON.stringify({ fullName: 'Jane Student', email: 'jane@example.com' }),
   });
   assert.equal(response.status, 404);
+  server.close();
+});
+
+test('PATCH /api/v1/applications/:id/status updates the status', async () => {
+  const pool = mockPool((text, params) => {
+    assert.match(text, /submission_status = \$1::varchar\(30\)/);
+    assert.deepEqual(params, ['SUBMITTED', 'app1', 'u1']);
+    return { rowCount: 1 };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/applications/app1/status`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ status: 'SUBMITTED' }),
+  });
+  assert.equal(response.status, 204);
+  server.close();
+});
+
+test('PATCH /api/v1/applications/:id/status rejects an invalid status', async () => {
+  const pool = mockPool(() => ({ rowCount: 0 }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/applications/app1/status`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ status: 'NOT_A_REAL_STATUS' }),
+  });
+  assert.equal(response.status, 400);
   server.close();
 });
 
