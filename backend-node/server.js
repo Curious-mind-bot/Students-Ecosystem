@@ -59,7 +59,7 @@ const ADMIN_RESOURCES = {
   },
   visa_requirements: {
     idColumn: 'visa_requirement_id',
-    columns: ['destination_country_code', 'applicant_country_code', 'visa_type', 'financial_proof_eur', 'estimated_processing_days', 'required_documents', 'application_url', 'source_url', 'source_checked_on', 'notes'],
+    columns: ['destination_country_code', 'applicant_country_code', 'visa_type', 'financial_proof_eur', 'estimated_processing_days', 'minimum_passport_validity_months', 'required_documents', 'application_url', 'source_url', 'source_checked_on', 'notes'],
     requiredColumns: ['destination_country_code', 'visa_type', 'source_url', 'source_checked_on'],
   },
   student_accommodations: {
@@ -80,6 +80,51 @@ function friendlyDbError(error) {
   if (error.code === '23505') return `Duplicate value — ${error.detail || error.message}.`;
   if (error.code === '23514') return `Value violates a constraint (${error.constraint}) — ${error.detail || error.message}.`;
   return null;
+}
+
+function httpError(statusCode, message) {
+  return Object.assign(new Error(message), { statusCode });
+}
+
+// Shared by the direct admin CRUD endpoints and by approving a crowdsourced
+// submission — both ultimately need to insert/update one row against the
+// same column whitelist and the same friendly-error translation.
+async function createResourceRow(pool, resource, body) {
+  const config = ADMIN_RESOURCES[resource];
+  if (!config) throw httpError(404, 'Unknown resource.');
+  const missing = config.requiredColumns.filter((column) => body[column] === undefined || body[column] === null || body[column] === '');
+  if (missing.length) throw httpError(400, `Missing required field(s): ${missing.join(', ')}.`);
+  const id = crypto.randomUUID();
+  const providedColumns = config.columns.filter((column) => body[column] !== undefined);
+  const allColumns = [config.idColumn, ...providedColumns];
+  const values = [id, ...providedColumns.map((column) => body[column])];
+  const placeholders = allColumns.map((_column, index) => `$${index + 1}`);
+  try {
+    await pool.query(`INSERT INTO ${resource} (${allColumns.join(', ')}) VALUES (${placeholders.join(', ')})`, values);
+  } catch (error) {
+    const friendly = friendlyDbError(error);
+    if (friendly) throw httpError(400, friendly);
+    throw error;
+  }
+  return { [config.idColumn]: id };
+}
+
+async function updateResourceRow(pool, resource, id, body) {
+  const config = ADMIN_RESOURCES[resource];
+  if (!config) throw httpError(404, 'Unknown resource.');
+  const providedColumns = config.columns.filter((column) => body[column] !== undefined);
+  if (!providedColumns.length) throw httpError(400, 'No updatable fields were provided.');
+  const setClause = providedColumns.map((column, index) => `${column} = $${index + 2}`).join(', ');
+  const values = [id, ...providedColumns.map((column) => body[column])];
+  try {
+    const { rowCount } = await pool.query(`UPDATE ${resource} SET ${setClause}, updated_at = now() WHERE ${config.idColumn} = $1`, values);
+    if (!rowCount) throw httpError(404, 'Not found.');
+  } catch (error) {
+    if (error.statusCode) throw error;
+    const friendly = friendlyDbError(error);
+    if (friendly) throw httpError(400, friendly);
+    throw error;
+  }
 }
 
 function requireEnv(name) {
@@ -347,6 +392,33 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
       return res.json(result);
     } catch (_error) {
       return res.status(503).json({ error: 'The eligibility checker is temporarily unavailable.' });
+    }
+  });
+
+  app.get('/api/v1/me/readiness/documents', authRequired, async (req, res) => {
+    const countryCode = req.query.countryCode ? String(req.query.countryCode).toUpperCase() : null;
+    if (!countryCode) return res.status(400).json({ error: 'countryCode is required.' });
+    const nationality = req.query.nationality ? String(req.query.nationality).toUpperCase() : null;
+    const [{ rows: docRows }, { rows: requirementRows }] = await Promise.all([
+      pool.query('SELECT document_type, expires_at FROM student_documents WHERE user_id = $1', [req.user.id]),
+      pool.query(
+        `SELECT minimum_passport_validity_months, source_url, source_checked_on
+         FROM visa_requirements
+         WHERE destination_country_code = $1
+           AND ($2::char(2) IS NULL OR applicant_country_code IS NULL OR applicant_country_code = $2)
+         ORDER BY applicant_country_code NULLS LAST, source_checked_on DESC LIMIT 1`,
+        [countryCode, nationality],
+      ),
+    ]);
+    try {
+      const result = await runPython({
+        action: 'check_document_readiness',
+        documents: docRows,
+        requirement: requirementRows[0] || null,
+      });
+      return res.json(result);
+    } catch (_error) {
+      return res.status(503).json({ error: 'The document readiness checker is temporarily unavailable.' });
     }
   });
 
@@ -968,6 +1040,92 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
     return res.json({ idColumn: config.idColumn, columns: config.columns, requiredColumns: config.requiredColumns });
   });
 
+  // Crowdsourced "Live-Verify" submissions. Any logged-in student can suggest
+  // a new record or a correction, but nothing here ever reaches another
+  // student until an admin approves it via the endpoints below — a
+  // submission never writes to the live content tables on its own. These
+  // must be registered before the generic /api/v1/admin/:resource[/:id]
+  // routes below, or Express would match "submissions" as a :resource value
+  // there instead of reaching these handlers.
+  app.post('/api/v1/submissions', authRequired, async (req, res) => {
+    const { targetResource, targetRecordId, proposedData, sourceUrl, submitterNote } = req.body || {};
+    if (!ADMIN_RESOURCES[targetResource]) return res.status(400).json({ error: 'Unknown target resource.' });
+    if (!proposedData || typeof proposedData !== 'object' || Array.isArray(proposedData)) {
+      return res.status(400).json({ error: 'proposedData must be an object of field values.' });
+    }
+    if (typeof sourceUrl !== 'string' || !/^https?:\/\//i.test(sourceUrl)) {
+      return res.status(400).json({ error: 'A valid sourceUrl (http:// or https://) is required — nothing is accepted without a source.' });
+    }
+    const submissionId = crypto.randomUUID();
+    await pool.query(
+      `INSERT INTO content_submissions (submission_id, submitted_by_user_id, target_resource, target_record_id, proposed_data, source_url, submitter_note)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [submissionId, req.user.id, targetResource, targetRecordId || null, JSON.stringify(proposedData), sourceUrl, submitterNote || null],
+    );
+    return res.status(201).json({
+      submissionId, status: 'PENDING',
+      message: 'Thanks — this is queued for review and will not appear to other students until an admin approves it.',
+    });
+  });
+
+  app.get('/api/v1/me/submissions', authRequired, async (req, res) => {
+    const { rows } = await pool.query(
+      `SELECT submission_id, target_resource, target_record_id, proposed_data, source_url, submitter_note, status, review_notes, reviewed_at, created_at
+       FROM content_submissions WHERE submitted_by_user_id = $1 ORDER BY created_at DESC`,
+      [req.user.id],
+    );
+    return res.json(rows);
+  });
+
+  app.get('/api/v1/admin/submissions', adminApiKeyRequired, async (req, res) => {
+    const status = req.query.status ? String(req.query.status).toUpperCase() : null;
+    const { rows } = await pool.query(
+      `SELECT * FROM content_submissions WHERE ($1::varchar IS NULL OR status = $1) ORDER BY created_at ASC`,
+      [status],
+    );
+    return res.json(rows);
+  });
+
+  app.get('/api/v1/admin/submissions/:id', adminApiKeyRequired, async (req, res) => {
+    const { rows } = await pool.query('SELECT * FROM content_submissions WHERE submission_id = $1', [req.params.id]);
+    return rows[0] ? res.json(rows[0]) : res.status(404).json({ error: 'Not found.' });
+  });
+
+  app.post('/api/v1/admin/submissions/:id/approve', adminApiKeyRequired, async (req, res) => {
+    const { rows } = await pool.query('SELECT * FROM content_submissions WHERE submission_id = $1', [req.params.id]);
+    const submission = rows[0];
+    if (!submission) return res.status(404).json({ error: 'Not found.' });
+    if (submission.status !== 'PENDING') return res.status(400).json({ error: `This submission was already ${submission.status.toLowerCase()}.` });
+    const config = ADMIN_RESOURCES[submission.target_resource];
+    const mergedData = { ...submission.proposed_data };
+    if (config.columns.includes('source_url') && !mergedData.source_url) mergedData.source_url = submission.source_url;
+    try {
+      let result;
+      if (submission.target_record_id) {
+        await updateResourceRow(pool, submission.target_resource, submission.target_record_id, mergedData);
+        result = { [config.idColumn]: submission.target_record_id };
+      } else {
+        result = await createResourceRow(pool, submission.target_resource, mergedData);
+      }
+      await pool.query(
+        `UPDATE content_submissions SET status = 'APPROVED', review_notes = $2, reviewed_at = now() WHERE submission_id = $1`,
+        [req.params.id, (req.body && req.body.reviewNotes) || null],
+      );
+      return res.status(200).json({ status: 'APPROVED', result });
+    } catch (error) {
+      if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
+      throw error;
+    }
+  });
+
+  app.post('/api/v1/admin/submissions/:id/reject', adminApiKeyRequired, async (req, res) => {
+    const { rowCount } = await pool.query(
+      `UPDATE content_submissions SET status = 'REJECTED', review_notes = $2, reviewed_at = now() WHERE submission_id = $1 AND status = 'PENDING'`,
+      [req.params.id, (req.body && req.body.reviewNotes) || null],
+    );
+    return rowCount ? res.status(200).json({ status: 'REJECTED' }) : res.status(404).json({ error: 'Not found or already reviewed.' });
+  });
+
   app.get('/api/v1/admin/:resource', adminApiKeyRequired, async (req, res) => {
     const config = ADMIN_RESOURCES[req.params.resource];
     if (!config) return res.status(404).json({ error: 'Unknown resource.' });
@@ -983,46 +1141,21 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
   });
 
   app.post('/api/v1/admin/:resource', adminApiKeyRequired, async (req, res) => {
-    const config = ADMIN_RESOURCES[req.params.resource];
-    if (!config) return res.status(404).json({ error: 'Unknown resource.' });
-    const body = req.body || {};
-    const missing = config.requiredColumns.filter((column) => body[column] === undefined || body[column] === null || body[column] === '');
-    if (missing.length) return res.status(400).json({ error: `Missing required field(s): ${missing.join(', ')}.` });
-    const id = crypto.randomUUID();
-    const providedColumns = config.columns.filter((column) => body[column] !== undefined);
-    const allColumns = [config.idColumn, ...providedColumns];
-    const values = [id, ...providedColumns.map((column) => body[column])];
-    const placeholders = allColumns.map((_column, index) => `$${index + 1}`);
     try {
-      await pool.query(
-        `INSERT INTO ${req.params.resource} (${allColumns.join(', ')}) VALUES (${placeholders.join(', ')})`,
-        values,
-      );
-      return res.status(201).json({ [config.idColumn]: id });
+      const result = await createResourceRow(pool, req.params.resource, req.body || {});
+      return res.status(201).json(result);
     } catch (error) {
-      const friendly = friendlyDbError(error);
-      if (friendly) return res.status(400).json({ error: friendly });
+      if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
       throw error;
     }
   });
 
   app.patch('/api/v1/admin/:resource/:id', adminApiKeyRequired, async (req, res) => {
-    const config = ADMIN_RESOURCES[req.params.resource];
-    if (!config) return res.status(404).json({ error: 'Unknown resource.' });
-    const body = req.body || {};
-    const providedColumns = config.columns.filter((column) => body[column] !== undefined);
-    if (!providedColumns.length) return res.status(400).json({ error: 'No updatable fields were provided.' });
-    const setClause = providedColumns.map((column, index) => `${column} = $${index + 2}`).join(', ');
-    const values = [req.params.id, ...providedColumns.map((column) => body[column])];
     try {
-      const { rowCount } = await pool.query(
-        `UPDATE ${req.params.resource} SET ${setClause}, updated_at = now() WHERE ${config.idColumn} = $1`,
-        values,
-      );
-      return rowCount ? res.status(204).end() : res.status(404).json({ error: 'Not found.' });
+      await updateResourceRow(pool, req.params.resource, req.params.id, req.body || {});
+      return res.status(204).end();
     } catch (error) {
-      const friendly = friendlyDbError(error);
-      if (friendly) return res.status(400).json({ error: friendly });
+      if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
       throw error;
     }
   });

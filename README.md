@@ -8,7 +8,7 @@ A safety-first, end-to-end ecosystem for planning an international study applica
 - **University & programme search** — browse universities and programmes, with admission requirements attached. `academic_programs.degree_level` includes `SHORT_COURSE` (alongside the traditional `BACHELOR`/`MASTER`/`PHD`/`DIPLOMA`/`CERTIFICATE`) for summer schools and other short-form courses, plus a nullable `duration_weeks` column for programmes measured in weeks rather than months.
 - **Scholarships** — programme-specific, university-wide, or country-wide funding.
 - **Fees & cost of living** — application/tuition fees per programme, plus country/university cost-of-living estimates.
-- **Visa requirements** — destination-country study/residence permit facts, optionally narrowed by nationality.
+- **Visa requirements** — destination-country study/residence permit facts, optionally narrowed by nationality. `GET /api/v1/me/readiness/documents` compares a student's own tracked passport expiry against a destination's sourced minimum passport validity (when one is on file) as an informational heads-up only — never a visa/immigration decision, and never populated with an assumed "typical" validity rule for a country that hasn't disclosed one. As of this writing none of the 7 seeded destination countries have a confirmed figure (each was checked by directly fetching that country's own official page, and none stated a clean number for its student/residence-permit route) — the column stays NULL for all of them rather than defaulting to a commonly assumed rule (e.g. the Schengen tourist-visa "6 months" convention, which does not necessarily apply to a national student residence permit).
 - **Accommodation** — university-linked dorm/private-hall listings with rent, deposit, and distance.
 - **Support & Resources** — free advising networks, test/application fee waivers, refugee-specific credential-recovery programs (e.g. EducationUSA, the Duolingo English Test Access Program, Article 26 Backpack), and a peer-mentorship/"chat with a current student" category (currently TU Delft and European University Cyprus — only programs whose official page could be directly confirmed), plus globally-open need-based scholarships (Chevening, Fulbright, UNHCR's DAFI programme) for students who can't afford a paid agent or a test fee.
 - **Document tracking** — per-application document checklist items can now be added and updated (`POST`/`PATCH /api/v1/applications/:id/documents...`), plus a personal "My Documents" vault (`/api/v1/me/documents`) for expiry-dated records like an IELTS score or passport — metadata only (type, dates, notes), no file storage.
@@ -22,7 +22,7 @@ Every requirement/scholarship/fee/visa/accommodation/support-resource record in 
 
 ## Not included
 
-This project does **not** predict admission or visa outcomes, calculate official financial requirements, generate insurance policies, or help a user conceal or alter material facts. Always use official university and government sources for requirements. Seed data in `database/schema.sql` is illustrative for local development only — it is not verified, current official data.
+This project does **not** predict admission or visa outcomes, calculate official financial requirements, generate insurance policies, give legal or immigration advice, or help a user conceal or alter material facts. The passport-validity check is a same-spirit informational comparison against a sourced figure, not a determination of visa eligibility. Always use official university and government sources for requirements. Seed data in `database/schema.sql` is illustrative for local development only — it is not verified, current official data.
 
 ## Run locally
 
@@ -90,6 +90,10 @@ DELETE /api/v1/admin/:resource/:id
 ```
 
 Every request is header-gated by `x-admin-api-key`. Postgres still enforces every `NOT NULL`/`CHECK` constraint (e.g. `source_url`/`source_checked_on` being required) — the API just translates a constraint violation into a readable 400 instead of a raw Postgres error.
+
+### Crowdsourced submissions ("Live-Verify")
+
+Any logged-in student can suggest a new record or a correction via `POST /api/v1/submissions` (a `sourceUrl` is mandatory — nothing is accepted without one) and check their own submission history at `GET /api/v1/me/submissions`. **Nothing a student submits is ever written to a live table or shown to anyone else automatically** — every submission lands in a `PENDING` queue and only reaches students after an admin reviews and approves it from the same `/admin.html` page (`GET /api/v1/admin/submissions`, `POST /api/v1/admin/submissions/:id/approve` or `.../reject`). Approving reuses the exact same column-whitelist and constraint-checked write path as the admin CRUD API above, so an incomplete or malformed suggestion is rejected with a clear error rather than silently corrupting a record.
 
 ## Operations
 

@@ -279,6 +279,10 @@
                 </div>
                 <button class="btn" type="button" onclick="searchVisaRequirements()" data-i18n="search">Search</button>
                 <div id="visa-results" aria-live="polite" style="margin-top:12px;font-size:.8rem;color:#cbd5e1;line-height:1.5"></div>
+                <div style="margin-top:12px;border-top:1px solid #334155;padding-top:8px">
+                    <button class="btn" type="button" onclick="checkDocumentReadiness()" data-i18n="check_passport_readiness">Check my passport against this destination</button>
+                    <div id="document-readiness-result" aria-live="polite" style="margin-top:8px;font-size:.8rem;color:#cbd5e1;line-height:1.5"></div>
+                </div>
             </div>
 
             <div class="card">
@@ -360,6 +364,45 @@
             </div>
 
             <div class="card">
+                <div class="card-title" data-i18n="card_contribute">Suggest a Correction or Addition</div>
+                <p style="font-size:.8rem;color:#cbd5e1;line-height:1.4" data-i18n="contribute_disclaimer">Help keep this data accurate. Every suggestion needs a real source link and is reviewed by an admin before it ever appears to other students — nothing is published automatically.</p>
+                <div class="input-group">
+                    <label for="contribute-resource">What kind of record?</label>
+                    <select id="contribute-resource">
+                        <option value="universities">University</option>
+                        <option value="academic_programs">Programme</option>
+                        <option value="admission_requirements">Admission requirement</option>
+                        <option value="scholarships">Scholarship</option>
+                        <option value="program_fees">Fee</option>
+                        <option value="living_cost_estimates">Living cost estimate</option>
+                        <option value="visa_requirements">Visa requirement</option>
+                        <option value="student_accommodations">Accommodation</option>
+                        <option value="support_resources">Support resource</option>
+                    </select>
+                </div>
+                <div class="input-group">
+                    <label for="contribute-record-id">Existing record ID to correct (optional — leave blank to suggest a brand-new record)</label>
+                    <input id="contribute-record-id" type="text" placeholder="e.g. 11111111-1111-1111-1111-111111111111">
+                </div>
+                <div class="input-group">
+                    <label for="contribute-data">Proposed data (JSON)</label>
+                    <textarea id="contribute-data" rows="4" placeholder='{"name": "...", "country_code": "..."}'></textarea>
+                </div>
+                <div class="input-group">
+                    <label for="contribute-source">Source URL (required)</label>
+                    <input id="contribute-source" type="url" placeholder="https://...">
+                </div>
+                <div class="input-group">
+                    <label for="contribute-note">Note for the reviewer (optional)</label>
+                    <textarea id="contribute-note" rows="2"></textarea>
+                </div>
+                <button class="btn" type="button" onclick="submitContribution()" data-i18n="submit_contribution">Submit for review</button>
+                <div id="contribute-status" role="status" aria-live="polite" style="margin-top:8px;font-size:.8rem;color:#cbd5e1"></div>
+                <button class="btn" type="button" style="margin-top:8px" onclick="loadMySubmissions()" data-i18n="refresh">Refresh</button>
+                <div id="my-submissions-list" aria-live="polite" style="margin-top:12px;font-size:.8rem;color:#cbd5e1;line-height:1.5"></div>
+            </div>
+
+            <div class="card">
                 <div class="card-title" data-i18n="card_recommendation">Recommendation request</div>
                 <div class="input-group">
                     <label for="professor-name">Professor Name</label>
@@ -410,6 +453,9 @@
           continue_to_partner: 'Continue to partner', no_partners_configured: 'No partners configured yet.',
           forgot_password: 'Forgot password?', new_password_label: 'New password', set_new_password: 'Set new password',
           export_my_data: 'Export my data', delete_my_account: 'Delete my account',
+          check_passport_readiness: 'Check my passport against this destination',
+          card_contribute: 'Suggest a Correction or Addition', contribute_disclaimer: 'Help keep this data accurate. Every suggestion needs a real source link and is reviewed by an admin before it ever appears to other students — nothing is published automatically.',
+          submit_contribution: 'Submit for review',
         },
         fr: {
           app_title: 'Students-Ecosystem', language_label: 'Langue', currency_label: 'Afficher les coûts en', skip_link: 'Aller au contenu principal',
@@ -428,6 +474,9 @@
           continue_to_partner: 'Continuer vers le partenaire', no_partners_configured: 'Aucun partenaire configuré pour le moment.',
           forgot_password: 'Mot de passe oublié ?', new_password_label: 'Nouveau mot de passe', set_new_password: 'Définir le nouveau mot de passe',
           export_my_data: 'Exporter mes données', delete_my_account: 'Supprimer mon compte',
+          check_passport_readiness: 'Vérifier mon passeport pour cette destination',
+          card_contribute: 'Suggérer une correction ou un ajout', contribute_disclaimer: "Aidez à garder ces données exactes. Chaque suggestion nécessite un lien source réel et est examinée par un administrateur avant d'apparaître aux autres étudiants — rien n'est publié automatiquement.",
+          submit_contribution: 'Soumettre pour révision',
         },
         ar: {
           app_title: 'Students-Ecosystem', language_label: 'اللغة', currency_label: 'عرض التكاليف بعملة', skip_link: 'الانتقال إلى المحتوى الرئيسي',
@@ -446,6 +495,9 @@
           continue_to_partner: 'المتابعة إلى الشريك', no_partners_configured: 'لا يوجد شركاء مُعدّون حتى الآن.',
           forgot_password: 'هل نسيت كلمة المرور؟', new_password_label: 'كلمة المرور الجديدة', set_new_password: 'تعيين كلمة المرور الجديدة',
           export_my_data: 'تصدير بياناتي', delete_my_account: 'حذف حسابي',
+          check_passport_readiness: 'تحقق من جواز سفري مقابل هذه الوجهة',
+          card_contribute: 'اقترح تصحيحًا أو إضافة', contribute_disclaimer: 'ساعد في الحفاظ على دقة هذه البيانات. يتطلب كل اقتراح رابط مصدر حقيقي ويتم مراجعته من قبل مسؤول قبل ظهوره لطلاب آخرين — لا يتم نشر أي شيء تلقائيًا.',
+          submit_contribution: 'إرسال للمراجعة',
         },
         es: {
           app_title: 'Students-Ecosystem', language_label: 'Idioma', currency_label: 'Mostrar costos en', skip_link: 'Saltar al contenido principal',
@@ -464,6 +516,9 @@
           continue_to_partner: 'Continuar con el socio', no_partners_configured: 'Aún no hay socios configurados.',
           forgot_password: '¿Olvidaste tu contraseña?', new_password_label: 'Nueva contraseña', set_new_password: 'Establecer nueva contraseña',
           export_my_data: 'Exportar mis datos', delete_my_account: 'Eliminar mi cuenta',
+          check_passport_readiness: 'Comprobar mi pasaporte para este destino',
+          card_contribute: 'Sugerir una corrección o adición', contribute_disclaimer: 'Ayuda a mantener estos datos precisos. Cada sugerencia necesita un enlace de fuente real y es revisada por un administrador antes de aparecer a otros estudiantes — nada se publica automáticamente.',
+          submit_contribution: 'Enviar para revisión',
         },
       };
 
@@ -884,6 +939,66 @@
         }
       }
 
+      async function submitContribution() {
+        const token = getToken();
+        const statusEl = document.getElementById('contribute-status');
+        if (!token) { statusEl.textContent = 'Please log in first.'; return; }
+        const targetResource = document.getElementById('contribute-resource').value;
+        const targetRecordId = document.getElementById('contribute-record-id').value.trim() || undefined;
+        const sourceUrl = document.getElementById('contribute-source').value.trim();
+        const submitterNote = document.getElementById('contribute-note').value.trim() || undefined;
+        let proposedData;
+        try {
+          proposedData = JSON.parse(document.getElementById('contribute-data').value || '{}');
+        } catch (_error) {
+          statusEl.textContent = 'Proposed data must be valid JSON.';
+          return;
+        }
+        statusEl.textContent = 'Submitting…';
+        try {
+          const response = await fetch('/api/v1/submissions', {
+            method: 'POST', headers: {'Content-Type': 'application/json', 'Authorization': `Bearer ${token}`},
+            body: JSON.stringify({targetResource, targetRecordId, proposedData, sourceUrl, submitterNote}),
+          });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Could not submit.');
+          statusEl.textContent = data.message;
+          document.getElementById('contribute-data').value = '';
+          document.getElementById('contribute-source').value = '';
+          document.getElementById('contribute-note').value = '';
+          document.getElementById('contribute-record-id').value = '';
+          loadMySubmissions();
+        } catch (error) {
+          statusEl.textContent = error.message;
+        }
+      }
+
+      function renderSubmission(s) {
+        const statusColor = s.status === 'APPROVED' ? '#4ade80' : s.status === 'REJECTED' ? '#f87171' : '#94a3b8';
+        return `
+          <div style="margin-bottom:10px;border-top:1px solid #334155;padding-top:8px">
+            <div style="font-weight:bold">${escapeHtml(s.target_resource)}${s.target_record_id ? ` (edit of ${escapeHtml(s.target_record_id)})` : ' (new record)'}</div>
+            <div style="color:${statusColor}">${escapeHtml(s.status)}</div>
+            ${s.review_notes ? `<div style="color:#94a3b8">Reviewer note: ${escapeHtml(s.review_notes)}</div>` : ''}
+            <div style="color:#94a3b8">Submitted ${escapeHtml(String(s.created_at).slice(0, 10))}</div>
+          </div>`;
+      }
+
+      async function loadMySubmissions() {
+        const token = getToken();
+        const listEl = document.getElementById('my-submissions-list');
+        if (!token) { listEl.textContent = 'Log in to see your submissions.'; return; }
+        listEl.textContent = 'Loading…';
+        try {
+          const response = await fetch('/api/v1/me/submissions', { headers: { Authorization: `Bearer ${token}` } });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Could not load submissions.');
+          listEl.innerHTML = data.length ? data.map((s) => renderSubmission(s)).join('') : 'No submissions yet.';
+        } catch (error) {
+          listEl.textContent = error.message;
+        }
+      }
+
       async function showUniversity(universityId) {
         const detailsEl = document.getElementById('program-details');
         detailsEl.textContent = 'Loading programmes…';
@@ -1287,6 +1402,33 @@
           resultsEl.innerHTML = data.length ? data.map((v) => renderVisaRequirement(v)).join('') : 'No visa requirements matched.';
         } catch (error) {
           resultsEl.textContent = error.message;
+        }
+      }
+
+      async function checkDocumentReadiness() {
+        const resultEl = document.getElementById('document-readiness-result');
+        const token = getToken();
+        if (!token) { resultEl.textContent = 'Please log in first.'; return; }
+        const countryCode = document.getElementById('visa-destination').value;
+        if (!countryCode) { resultEl.textContent = 'Enter a destination country code above first.'; return; }
+        const nationality = document.getElementById('visa-applicant').value;
+        resultEl.textContent = 'Checking…';
+        try {
+          const params = new URLSearchParams({ countryCode });
+          if (nationality) params.set('nationality', nationality);
+          const response = await fetch(`/api/v1/me/readiness/documents?${params.toString()}`, { headers: { Authorization: `Bearer ${token}` } });
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Could not run the check.');
+          const statusColor = data.status === 'BELOW_REQUIREMENT' ? '#f87171' : data.status === 'MEETS_REQUIREMENT' ? '#4ade80' : '#94a3b8';
+          resultEl.innerHTML = `
+            <div style="color:${statusColor};font-weight:bold">${escapeHtml(data.status)}</div>
+            ${data.message ? `<div>${escapeHtml(data.message)}</div>` : ''}
+            ${data.required_validity_months != null ? `<div>Required passport validity: ${escapeHtml(data.required_validity_months)} month(s)</div>` : ''}
+            ${data.months_of_validity_remaining_from_today != null ? `<div>Your passport's remaining validity (from today): ${escapeHtml(data.months_of_validity_remaining_from_today)} month(s)</div>` : ''}
+            ${data.source_url ? `<div style="color:#94a3b8">Source: <a href="${escapeHtml(data.source_url)}" target="_blank" rel="noopener">${escapeHtml(data.source_url)}</a> (checked ${escapeHtml(data.source_checked_on)})</div>` : ''}
+            <div style="color:#94a3b8;margin-top:4px">${escapeHtml(data.disclaimer || '')}</div>`;
+        } catch (error) {
+          resultEl.textContent = error.message;
         }
       }
 

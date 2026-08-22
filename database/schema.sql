@@ -56,6 +56,31 @@ CREATE TABLE student_documents (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Crowdsourced fact submissions ("Live-Verify"). Any logged-in student can
+-- suggest a new record or a correction, but nothing here is ever shown to
+-- another student until an admin (via the existing ADMIN_API_KEY-gated CMS)
+-- approves it — a submission never writes directly to the live content
+-- tables. A source_url is mandatory on every submission, independent of
+-- whether the target table itself requires one, so every suggestion is
+-- traceable to where the submitter says it came from.
+CREATE TABLE content_submissions (
+    submission_id UUID PRIMARY KEY,
+    submitted_by_user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
+    target_resource VARCHAR(50) NOT NULL
+        CHECK (target_resource IN ('universities', 'academic_programs', 'admission_requirements', 'scholarships', 'program_fees', 'living_cost_estimates', 'visa_requirements', 'student_accommodations', 'support_resources')),
+    target_record_id UUID,
+    proposed_data JSONB NOT NULL,
+    source_url TEXT NOT NULL,
+    submitter_note TEXT,
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'APPROVED', 'REJECTED')),
+    review_notes TEXT,
+    reviewed_at TIMESTAMPTZ,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX content_submissions_status_idx ON content_submissions(status);
+CREATE INDEX content_submissions_submitted_by_user_id_idx ON content_submissions(submitted_by_user_id);
+
 CREATE TABLE professor_lor_requests (
     request_id UUID PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
@@ -280,6 +305,11 @@ CREATE TABLE visa_requirements (
         CHECK (visa_type IN ('STUDY_VISA', 'RESIDENCE_PERMIT', 'SHORT_STAY_EXEMPT', 'TRANSIT_VISA')),
     financial_proof_eur NUMERIC(12,2) CHECK (financial_proof_eur >= 0),
     estimated_processing_days SMALLINT CHECK (estimated_processing_days > 0),
+    -- Only populated when an official source states a clean, fixed number of
+    -- months (not a vague "valid for the duration of your stay" condition,
+    -- which can't be reduced to a number without guessing) — left NULL
+    -- otherwise, same discipline as every other nullable fact in this table.
+    minimum_passport_validity_months SMALLINT CHECK (minimum_passport_validity_months > 0),
     required_documents TEXT[],
     application_url TEXT,
     source_url TEXT NOT NULL,

@@ -126,6 +126,50 @@ def evaluate_profile(profile: dict, requirements: dict | None = None) -> dict:
     return result
 
 
+def check_document_readiness(documents: list | None, requirement: dict | None) -> dict:
+    """Flags a possible document gap — e.g. a passport expiring too soon for a
+    destination's stated minimum validity — as a heads-up to verify, never as
+    a visa/immigration decision. Only compares against a sourced figure; never
+    assumes a "typical" validity rule for a country that hasn't disclosed one.
+    """
+    if not requirement or requirement.get("minimum_passport_validity_months") is None:
+        return {
+            "status": "REQUIREMENT_NOT_SOURCED",
+            "message": "No sourced minimum passport validity figure is on file for this destination. Check directly with the relevant immigration authority.",
+            "disclaimer": "This is an informational comparison, not a visa or immigration decision.",
+        }
+
+    passport = next(
+        (d for d in (documents or []) if str(d.get("document_type", "")).strip().upper() == "PASSPORT" and d.get("expires_at")),
+        None,
+    )
+    required_months = requirement["minimum_passport_validity_months"]
+    if not passport:
+        return {
+            "status": "PASSPORT_NOT_TRACKED",
+            "required_validity_months": required_months,
+            "source_url": requirement.get("source_url"),
+            "source_checked_on": requirement.get("source_checked_on"),
+            "message": "Add your passport's expiry date under My Documents to check this.",
+            "disclaimer": "This is an informational comparison, not a visa or immigration decision.",
+        }
+
+    expires_at = date.fromisoformat(str(passport["expires_at"])[:10])
+    today = date.today()
+    months_remaining = (expires_at.year - today.year) * 12 + (expires_at.month - today.month)
+    status = "MEETS_REQUIREMENT" if months_remaining >= required_months else "BELOW_REQUIREMENT"
+    return {
+        "status": status,
+        "passport_expires_at": passport["expires_at"],
+        "months_of_validity_remaining_from_today": months_remaining,
+        "required_validity_months": required_months,
+        "source_url": requirement.get("source_url"),
+        "source_checked_on": requirement.get("source_checked_on"),
+        "disclaimer": "Calculated from today's date, not your actual travel or application date — the real requirement is normally measured from then, not now. "
+                      "This is an informational heads-up, not a visa or immigration decision. Always confirm with the relevant immigration authority.",
+    }
+
+
 def evaluate_candidates(profile: dict, candidates: list) -> list:
     """Run evaluate_profile against many programmes at once, tagging each result.
 
@@ -149,6 +193,8 @@ def main() -> None:
         print(json.dumps(evaluate_profile(payload.get("profile", {}), payload.get("requirements"))))
     elif action == "evaluate_candidates":
         print(json.dumps(evaluate_candidates(payload.get("profile", {}), payload.get("candidates", []))))
+    elif action == "check_document_readiness":
+        print(json.dumps(check_document_readiness(payload.get("documents", []), payload.get("requirement"))))
     else:
         print(json.dumps({"error": "Unknown action"}))
         raise SystemExit(2)

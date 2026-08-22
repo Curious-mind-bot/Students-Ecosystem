@@ -363,6 +363,78 @@ test('GET /api/v1/matches requires authentication', async () => {
   server.close();
 });
 
+test('GET /api/v1/me/readiness/documents requires authentication', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/me/readiness/documents?countryCode=DE`);
+  assert.equal(response.status, 401);
+  server.close();
+});
+
+test('GET /api/v1/me/readiness/documents requires a countryCode', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/me/readiness/documents`, { headers: { Authorization: `Bearer ${token}` } });
+  assert.equal(response.status, 400);
+  server.close();
+});
+
+test('GET /api/v1/me/readiness/documents reports REQUIREMENT_NOT_SOURCED when no figure is on file', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/me/readiness/documents?countryCode=DE`, { headers: { Authorization: `Bearer ${token}` } });
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data.status, 'REQUIREMENT_NOT_SOURCED');
+  server.close();
+});
+
+test('GET /api/v1/me/readiness/documents reports PASSPORT_NOT_TRACKED when the student has no passport on file', async () => {
+  const pool = mockPool((text) => {
+    if (/FROM visa_requirements/.test(text)) {
+      return { rows: [{ minimum_passport_validity_months: 6, source_url: 'https://example.gov/visa', source_checked_on: '2026-08-22' }] };
+    }
+    return { rows: [] };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/me/readiness/documents?countryCode=DE`, { headers: { Authorization: `Bearer ${token}` } });
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data.status, 'PASSPORT_NOT_TRACKED');
+  assert.equal(data.required_validity_months, 6);
+  server.close();
+});
+
+test('GET /api/v1/me/readiness/documents flags a passport that falls below the required validity', async () => {
+  const pool = mockPool((text) => {
+    if (/FROM visa_requirements/.test(text)) {
+      return { rows: [{ minimum_passport_validity_months: 12, source_url: 'https://example.gov/visa', source_checked_on: '2026-08-22' }] };
+    }
+    return { rows: [{ document_type: 'PASSPORT', expires_at: '2027-01-01' }] };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/me/readiness/documents?countryCode=DE`, { headers: { Authorization: `Bearer ${token}` } });
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data.status, 'BELOW_REQUIREMENT');
+  assert.match(data.disclaimer, /not a visa or immigration decision/i);
+  server.close();
+});
+
 test('computeCostView returns null when no fee rows exist for the programme', async () => {
   const pool = mockPool(() => ({ rows: [] }));
   const cost = await computeCostView(pool, 'p1');
@@ -1211,5 +1283,263 @@ test('DELETE /api/v1/admin/:resource/:id removes a row', withAdminApiKey(async (
     method: 'DELETE', headers: { 'x-admin-api-key': 'test-admin-key' },
   });
   assert.equal(response.status, 204);
+  server.close();
+}));
+
+test('POST /api/v1/submissions requires authentication', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/submissions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ targetResource: 'universities', proposedData: { name: 'X' }, sourceUrl: 'https://example.edu' }),
+  });
+  assert.equal(response.status, 401);
+  server.close();
+});
+
+test('POST /api/v1/submissions rejects an unknown target resource', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/submissions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ targetResource: 'not_a_table', proposedData: { x: 1 }, sourceUrl: 'https://example.edu' }),
+  });
+  assert.equal(response.status, 400);
+  server.close();
+});
+
+test('POST /api/v1/submissions requires a valid http(s) sourceUrl', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/submissions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ targetResource: 'universities', proposedData: { name: 'X' }, sourceUrl: 'not-a-url' }),
+  });
+  assert.equal(response.status, 400);
+  server.close();
+});
+
+test('POST /api/v1/submissions queues a PENDING submission', async () => {
+  const pool = mockPool((text, params) => {
+    assert.match(text, /INSERT INTO content_submissions/);
+    assert.equal(params[2], 'universities');
+    assert.equal(params[5], 'https://example.edu/new-campus');
+    return {};
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/submissions`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ targetResource: 'universities', proposedData: { name: 'New Campus', country_code: 'FR' }, sourceUrl: 'https://example.edu/new-campus' }),
+  });
+  const data = await response.json();
+  assert.equal(response.status, 201);
+  assert.equal(data.status, 'PENDING');
+  server.close();
+});
+
+test('GET /api/v1/me/submissions requires authentication', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/me/submissions`);
+  assert.equal(response.status, 401);
+  server.close();
+});
+
+test('GET /api/v1/me/submissions returns only the caller\'s own submissions', async () => {
+  const pool = mockPool((text, params) => {
+    assert.match(text, /WHERE submitted_by_user_id = \$1/);
+    assert.deepEqual(params, ['u1']);
+    return { rows: [{ submission_id: 's1', status: 'PENDING' }] };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/me/submissions`, { headers: { Authorization: `Bearer ${token}` } });
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data[0].submission_id, 's1');
+  server.close();
+});
+
+test('GET /api/v1/admin/submissions rejects a missing admin key', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/admin/submissions`);
+  assert.equal(response.status, 401);
+  server.close();
+});
+
+test('GET /api/v1/admin/submissions/:id returns 404 when missing', withAdminApiKey(async () => {
+  const pool = mockPool((text) => {
+    assert.match(text, /FROM content_submissions WHERE submission_id/);
+    return { rows: [] };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/admin/submissions/does-not-exist`, { headers: { 'x-admin-api-key': 'test-admin-key' } });
+  const data = await response.json();
+  assert.equal(response.status, 404);
+  assert.equal(data.error, 'Not found.');
+  server.close();
+}));
+
+test('GET /api/v1/admin/submissions is not shadowed by the generic /api/v1/admin/:resource route', withAdminApiKey(async () => {
+  const pool = mockPool((text) => {
+    assert.match(text, /FROM content_submissions WHERE/);
+    return { rows: [{ submission_id: 's1', status: 'PENDING' }] };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/admin/submissions`, { headers: { 'x-admin-api-key': 'test-admin-key' } });
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data[0].submission_id, 's1');
+  server.close();
+}));
+
+test('POST /api/v1/admin/submissions/:id/approve creates a new row for a CREATE-type submission', withAdminApiKey(async () => {
+  const pool = mockPool((text, params) => {
+    if (/FROM content_submissions WHERE submission_id/.test(text)) {
+      return {
+        rows: [{
+          submission_id: 'sub1', target_resource: 'universities', target_record_id: null,
+          proposed_data: { name: 'New Campus', country_code: 'FR' }, source_url: 'https://example.edu/new-campus', status: 'PENDING',
+        }],
+      };
+    }
+    if (/INSERT INTO universities/.test(text)) {
+      assert.deepEqual(params.slice(1), ['New Campus', 'FR']);
+      return {};
+    }
+    if (/UPDATE content_submissions SET status = 'APPROVED'/.test(text)) return {};
+    return { rows: [] };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/admin/submissions/sub1/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-api-key': 'test-admin-key' }, body: JSON.stringify({}),
+  });
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data.status, 'APPROVED');
+  assert.ok(data.result.university_id);
+  server.close();
+}));
+
+test('POST /api/v1/admin/submissions/:id/approve updates the existing row for an EDIT-type submission', withAdminApiKey(async () => {
+  const pool = mockPool((text, params) => {
+    if (/FROM content_submissions WHERE submission_id/.test(text)) {
+      return {
+        rows: [{
+          submission_id: 'sub2', target_resource: 'universities', target_record_id: 'u1',
+          proposed_data: { city: 'Lyon' }, source_url: 'https://example.edu/update', status: 'PENDING',
+        }],
+      };
+    }
+    if (/UPDATE universities SET/.test(text)) {
+      assert.deepEqual(params, ['u1', 'Lyon']);
+      return { rowCount: 1 };
+    }
+    if (/UPDATE content_submissions SET status = 'APPROVED'/.test(text)) return {};
+    return { rows: [] };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/admin/submissions/sub2/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-api-key': 'test-admin-key' }, body: JSON.stringify({}),
+  });
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data.result.university_id, 'u1');
+  server.close();
+}));
+
+test('POST /api/v1/admin/submissions/:id/approve rejects a submission that was already reviewed', withAdminApiKey(async () => {
+  const pool = mockPool((text) => {
+    if (/FROM content_submissions WHERE submission_id/.test(text)) {
+      return { rows: [{ submission_id: 'sub3', status: 'APPROVED' }] };
+    }
+    return { rows: [] };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/admin/submissions/sub3/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-api-key': 'test-admin-key' }, body: JSON.stringify({}),
+  });
+  assert.equal(response.status, 400);
+  server.close();
+}));
+
+test('POST /api/v1/admin/submissions/:id/approve surfaces a missing-required-field error instead of silently succeeding', withAdminApiKey(async () => {
+  const pool = mockPool((text) => {
+    if (/FROM content_submissions WHERE submission_id/.test(text)) {
+      return {
+        rows: [{
+          submission_id: 'sub4', target_resource: 'universities', target_record_id: null,
+          proposed_data: { name: 'Incomplete Campus' }, source_url: 'https://example.edu/incomplete', status: 'PENDING',
+        }],
+      };
+    }
+    return { rows: [] };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/admin/submissions/sub4/approve`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-api-key': 'test-admin-key' }, body: JSON.stringify({}),
+  });
+  const data = await response.json();
+  assert.equal(response.status, 400);
+  assert.match(data.error, /country_code/);
+  server.close();
+}));
+
+test('POST /api/v1/admin/submissions/:id/reject marks the submission rejected', withAdminApiKey(async () => {
+  const pool = mockPool((text) => {
+    assert.match(text, /UPDATE content_submissions SET status = 'REJECTED'/);
+    return { rowCount: 1 };
+  });
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/admin/submissions/sub1/reject`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-api-key': 'test-admin-key' }, body: JSON.stringify({ reviewNotes: 'Not verifiable.' }),
+  });
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data.status, 'REJECTED');
+  server.close();
+}));
+
+test('POST /api/v1/admin/submissions/:id/reject returns 404 when not found or already reviewed', withAdminApiKey(async () => {
+  const pool = mockPool(() => ({ rowCount: 0 }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/api/v1/admin/submissions/sub1/reject`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-api-key': 'test-admin-key' }, body: JSON.stringify({}),
+  });
+  assert.equal(response.status, 404);
   server.close();
 }));

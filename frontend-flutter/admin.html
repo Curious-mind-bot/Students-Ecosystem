@@ -95,6 +95,25 @@
         </table>
     </div>
 
+    <div class="card">
+        <div style="font-weight:bold;margin-bottom:10px">Review Submissions ("Live-Verify")</div>
+        <p class="hint">Crowdsourced suggestions from logged-in students. Nothing here reaches a student until you approve it — approving writes the proposed data straight into the live table (subject to the same NOT NULL/CHECK constraints as everywhere else); rejecting discards it.</p>
+        <div class="row">
+            <div class="field">
+                <label for="submissions-status-filter">Status</label>
+                <select id="submissions-status-filter" style="width:180px">
+                    <option value="PENDING">Pending</option>
+                    <option value="APPROVED">Approved</option>
+                    <option value="REJECTED">Rejected</option>
+                    <option value="">All</option>
+                </select>
+            </div>
+            <button type="button" onclick="loadSubmissions()">Load submissions</button>
+        </div>
+        <div id="submissions-status" style="font-size:.8rem;color:#94a3b8;margin-bottom:8px"></div>
+        <div id="submissions-list"></div>
+    </div>
+
     <script>
         // Mirrors the CHECK constraints in database/schema.sql — purely a UX
         // convenience (dropdown instead of free text); Postgres is still the
@@ -281,6 +300,69 @@
                 await apiFetch(`/api/v1/admin/${currentResource}/${id}`, { method: 'DELETE' });
                 statusEl.textContent = 'Deleted.';
                 loadRows();
+            } catch (error) {
+                statusEl.textContent = error.message;
+            }
+        }
+
+        function renderSubmissionCard(s) {
+            const statusColor = s.status === 'APPROVED' ? '#4ade80' : s.status === 'REJECTED' ? '#f87171' : '#fbbf24';
+            const reviewActions = s.status === 'PENDING' ? `
+                <button type="button" onclick="approveSubmission('${s.submission_id}')">Approve</button>
+                <button type="button" class="danger" onclick="rejectSubmission('${s.submission_id}')">Reject</button>` : '';
+            return `
+                <div class="card" style="margin-bottom:8px">
+                    <div style="display:flex;justify-content:space-between">
+                        <div><strong>${escapeHtml(s.target_resource)}</strong>${s.target_record_id ? ` — editing ${escapeHtml(s.target_record_id)}` : ' — new record'}</div>
+                        <div style="color:${statusColor}">${escapeHtml(s.status)}</div>
+                    </div>
+                    <div style="font-size:.75rem;color:#94a3b8;margin:6px 0">Submitted ${escapeHtml(String(s.created_at).slice(0, 10))} · source: <a href="${escapeHtml(s.source_url)}" target="_blank" rel="noopener" style="color:#38bdf8">${escapeHtml(s.source_url)}</a></div>
+                    ${s.submitter_note ? `<div style="font-size:.8rem;margin-bottom:6px">Note: ${escapeHtml(s.submitter_note)}</div>` : ''}
+                    <pre style="background:#0f172a;border:1px solid #334155;border-radius:6px;padding:8px;font-size:.75rem;overflow-x:auto">${escapeHtml(JSON.stringify(s.proposed_data, null, 2))}</pre>
+                    ${s.review_notes ? `<div style="font-size:.8rem;color:#94a3b8">Reviewer note: ${escapeHtml(s.review_notes)}</div>` : ''}
+                    ${reviewActions}
+                </div>`;
+        }
+
+        async function loadSubmissions() {
+            const statusEl = document.getElementById('submissions-status');
+            const status = document.getElementById('submissions-status-filter').value;
+            statusEl.textContent = 'Loading…';
+            try {
+                const params = status ? `?status=${encodeURIComponent(status)}` : '';
+                const submissions = await apiFetch(`/api/v1/admin/submissions${params}`);
+                document.getElementById('submissions-list').innerHTML = submissions.length
+                    ? submissions.map((s) => renderSubmissionCard(s)).join('')
+                    : 'No submissions.';
+                statusEl.textContent = `${submissions.length} submission(s).`;
+            } catch (error) {
+                statusEl.textContent = error.message;
+            }
+        }
+
+        async function approveSubmission(id) {
+            const reviewNotes = prompt('Optional note to record with this approval:') || undefined;
+            const statusEl = document.getElementById('submissions-status');
+            try {
+                await apiFetch(`/api/v1/admin/submissions/${id}/approve`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reviewNotes }),
+                });
+                statusEl.textContent = 'Approved and published.';
+                loadSubmissions();
+            } catch (error) {
+                statusEl.textContent = error.message;
+            }
+        }
+
+        async function rejectSubmission(id) {
+            const reviewNotes = prompt('Optional reason for rejecting this submission:') || undefined;
+            const statusEl = document.getElementById('submissions-status');
+            try {
+                await apiFetch(`/api/v1/admin/submissions/${id}/reject`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reviewNotes }),
+                });
+                statusEl.textContent = 'Rejected.';
+                loadSubmissions();
             } catch (error) {
                 statusEl.textContent = error.message;
             }
