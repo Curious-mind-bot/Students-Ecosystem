@@ -472,6 +472,20 @@ test('computeCostView includes a whole-programme TUITION_TOTAL fee in the cost e
   assert.equal(cost.estimated_net_annual_cost_if_awarded_eur, 6237);
 });
 
+test('computeCostView includes a TUITION_PER_SEMESTER fee in the cost estimate', async () => {
+  let call = 0;
+  const pool = {
+    query: async () => {
+      call += 1;
+      if (call === 1) return { rows: [{ fee_type: 'TUITION_PER_SEMESTER', amount_eur: '12950.85' }] };
+      return { rows: [] };
+    },
+  };
+  const cost = await computeCostView(pool, 'p1');
+  assert.equal(cost.estimated_annual_tuition_eur, 12950.85);
+  assert.equal(cost.estimated_net_annual_cost_if_awarded_eur, 12950.85);
+});
+
 test('PUT /api/v1/me/profile updates an existing account (not an upsert)', async () => {
   const pool = mockPool((text, params) => {
     assert.match(text, /UPDATE users SET/);
