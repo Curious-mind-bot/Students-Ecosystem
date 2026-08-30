@@ -728,7 +728,7 @@ test('DELETE /api/v1/me/documents/:id returns 404 when not found', async () => {
 });
 
 test('POST /api/v1/auth/register creates an account and returns a token', async () => {
-  const pool = mockPool(() => ({ rows: [] }));
+  const pool = mockPool(() => ({ rows: [{ user_id: 42 }] }));
   const app = createApp({ pool });
   const server = app.listen(0);
   const { port } = server.address();

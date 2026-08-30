@@ -295,12 +295,12 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
     if (!fullName || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email || '') || typeof password !== 'string' || password.length < 8) {
       return res.status(400).json({ error: 'fullName, a valid email, and a password of at least 8 characters are required.' });
     }
-    const userId = crypto.randomUUID();
     try {
-      await pool.query(
-        'INSERT INTO users (user_id, full_name, email, password_hash) VALUES ($1, $2, $3, $4)',
-        [userId, fullName, email, hashPassword(password)],
+      const { rows } = await pool.query(
+        'INSERT INTO users (full_name, email, password_hash) VALUES ($1, $2, $3) RETURNING user_id',
+        [fullName, email, hashPassword(password)],
       );
+      const userId = rows[0].user_id;
       return res.status(201).json({ token: signToken(userId), user: { userId, fullName, email } });
     } catch (error) {
       console.error("REGISTER_ERROR:", error);
