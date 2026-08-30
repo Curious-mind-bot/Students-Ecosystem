@@ -57,16 +57,22 @@ npm test
 
 The app never charges a student. Institutes and sponsors can support it instead, and every one of these is designed so paid placement can never influence search results or the "Find My Matches" ranking:
 
-- **Verified partners** (`GET /api/v1/partners`, `POST /api/v1/partners/:id/continue`) — affiliate-style referrals (e.g. a visa consultant, test-prep provider) shown in the "Trusted Partners" card with an explicit commission disclosure on every listing. Configure real partners via the `PARTNERS_JSON` env var, e.g.:
+- **Verified partners** (`GET /api/v1/partners`, `POST /api/v1/partners/:id/continue`) — affiliate-style referrals (e.g. a visa consultant, test-prep provider, or a hostel/accommodation booking partner) shown in the "Trusted Partners" card with an explicit commission disclosure on every listing. Configure real partners via the `PARTNERS_JSON` env var, e.g.:
   ```
-  PARTNERS_JSON=[{"id":"...","name":"...","category":"CONSULTANT","redirectUrl":"https://...","sourceAttribution":"..."}]
+  PARTNERS_JSON=[
+    {"id":"visa-consultant-1","name":"...","category":"CONSULTANT","redirectUrl":"https://...","sourceAttribution":"..."},
+    {"id":"hostel-partner-1","name":"...","category":"ACCOMMODATION","redirectUrl":"https://...","sourceAttribution":"..."}
+  ]
   ```
-  Clicking "Continue to partner" is logged to `partner_conversions` with a per-click tracking token appended to the outbound URL.
-- **Sponsored content** (`GET /api/v1/sponsored-content?countryCode=..`) — direct-sold, non-behavioral placements (no tracking, no student data used for targeting) shown in a clearly labeled "Sponsored" block above university search results. Configure via `SPONSORED_CONTENT_JSON`, e.g.:
+  Clicking "Continue to partner" is logged to `partner_conversions` with a per-click tracking token appended to the outbound URL. An `ACCOMMODATION` partner's `id` doubles as the `partner_id` set on the matching `student_accommodations` row (admin CRUD or a seed batch), which is what makes the "Book via verified partner" button appear on that listing — it reuses this exact same endpoint and disclosure, not a separate booking system.
+- **Sponsored content** (`GET /api/v1/sponsored-content?countryCode=..&placement=..`) — direct-sold, non-behavioral placements (no tracking, no student data used for targeting) shown in a clearly labeled "Sponsored" block. Configure via `SPONSORED_CONTENT_JSON`, e.g.:
   ```
-  SPONSORED_CONTENT_JSON=[{"id":"...","sponsorName":"...","headline":"...","linkUrl":"https://...","countryCode":"DE"}]
+  SPONSORED_CONTENT_JSON=[
+    {"id":"...","sponsorName":"...","headline":"...","linkUrl":"https://...","countryCode":"DE"},
+    {"id":"...","sponsorName":"...","headline":"...","linkUrl":"https://...","placement":"ACCOMMODATION_LIST"}
+  ]
   ```
-  Omit `countryCode` for a sponsor shown regardless of search filters.
+  Omit `countryCode` for a sponsor shown regardless of search filters. `placement` scopes which page shows the ad — it defaults to `SEARCH_RESULTS` (the university search results block) when omitted; `ACCOMMODATION_LIST` shows above the student accommodation search results instead.
 - **Institute demand analytics** (`GET /api/v1/analytics/demand`, header `x-institute-api-key`) — sells a university aggregate, anonymized view-count data for its own listing only (no individual student data, ever). Each API key is scoped to exactly one `universityId` via `INSTITUTE_ANALYTICS_KEYS_JSON`:
   ```
   INSTITUTE_ANALYTICS_KEYS_JSON=[{"apiKey":"...","universityId":"..."}]
