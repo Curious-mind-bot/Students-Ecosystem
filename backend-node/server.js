@@ -288,7 +288,10 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
   app.get('/api/v1/health', (_req, res) => res.json({ status: 'ok' }));
 
   app.post('/api/v1/auth/register', authRateLimiter, async (req, res) => {
-    const { fullName, email, password } = req.body || {};
+    const body = req.body || {};
+    const fullName = body.fullName || body.full_name;
+    const email = body.email;
+    const password = body.password;
     if (!fullName || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email || '') || typeof password !== 'string' || password.length < 8) {
       return res.status(400).json({ error: 'fullName, a valid email, and a password of at least 8 characters are required.' });
     }
@@ -300,8 +303,9 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
       );
       return res.status(201).json({ token: signToken(userId), user: { userId, fullName, email } });
     } catch (error) {
+      console.error("REGISTER_ERROR:", error);
       if (error.code === '23505') return res.status(409).json({ error: 'An account with this email already exists.' });
-      throw error;
+      return res.status(500).json({ error: error.message || 'Registration failed' });
     }
   });
 
