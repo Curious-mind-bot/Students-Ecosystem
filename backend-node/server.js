@@ -64,7 +64,7 @@ const ADMIN_RESOURCES = {
   },
   student_accommodations: {
     idColumn: 'accommodation_id',
-    columns: ['university_id', 'accommodation_type', 'provider_name', 'city', 'monthly_rent_eur', 'deposit_eur', 'distance_to_university_km', 'amenities', 'application_url', 'contact_email', 'source_url', 'source_checked_on', 'notes'],
+    columns: ['university_id', 'accommodation_type', 'provider_name', 'city', 'monthly_rent_eur', 'deposit_eur', 'distance_to_university_km', 'amenities', 'application_url', 'contact_email', 'partner_id', 'source_url', 'source_checked_on', 'notes'],
     requiredColumns: ['university_id', 'accommodation_type', 'provider_name', 'city', 'monthly_rent_eur', 'source_url', 'source_checked_on'],
   },
   support_resources: {
@@ -236,7 +236,10 @@ function getInstituteApiKeys() {
 
 // Contextual, direct-sold sponsor placements — never behavioral/tracking ads,
 // never mixed into search ranking or Find My Matches. Configured per operator
-// via SPONSORED_CONTENT_JSON, same shape/spirit as PARTNERS_JSON above.
+// via SPONSORED_CONTENT_JSON, same shape/spirit as PARTNERS_JSON above. Each
+// item's optional `placement` (default 'SEARCH_RESULTS') scopes it to a page —
+// e.g. 'ACCOMMODATION_LIST' — so the same non-behavioral ad slot mechanism can
+// be sold across more of the app without a second config-driven ad system.
 function getSponsoredContent() {
   try {
     const parsed = JSON.parse(process.env.SPONSORED_CONTENT_JSON || '[]');
@@ -1004,11 +1007,14 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
 
   app.get('/api/v1/sponsored-content', (req, res) => {
     const countryCode = req.query.countryCode ? String(req.query.countryCode).toUpperCase() : null;
+    const placement = req.query.placement ? String(req.query.placement).toUpperCase() : null;
     const items = getSponsoredContent()
       .filter((item) => !item.countryCode || item.countryCode === countryCode)
+      .filter((item) => !placement || (item.placement || 'SEARCH_RESULTS').toUpperCase() === placement)
       .map((item) => ({
         id: item.id, sponsorName: item.sponsorName, headline: item.headline, body: item.body || null,
         linkUrl: item.linkUrl, countryCode: item.countryCode || null,
+        placement: (item.placement || 'SEARCH_RESULTS').toUpperCase(),
         disclosure: item.disclosure || 'Sponsored placement — paid for by the sponsor. It never affects search results or Find My Matches ranking.',
       }));
     return res.json(items);

@@ -348,6 +348,9 @@ CREATE TABLE student_accommodations (
     amenities TEXT[],
     application_url TEXT,
     contact_email VARCHAR(254),
+    -- Matches an `id` in the PARTNERS_JSON config (see getPartners() in server.js), not a DB foreign key --
+    -- partners live in env config, not a table. NULL means this listing has no affiliate/booking partner.
+    partner_id VARCHAR(80),
     source_url TEXT NOT NULL,
     source_checked_on DATE NOT NULL,
     notes TEXT,

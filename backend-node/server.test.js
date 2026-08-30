@@ -1038,6 +1038,33 @@ test('GET /api/v1/sponsored-content filters by country and always attaches a dis
   }
 });
 
+test('GET /api/v1/sponsored-content filters by placement, defaulting untagged items to SEARCH_RESULTS', async () => {
+  const originalContent = process.env.SPONSORED_CONTENT_JSON;
+  process.env.SPONSORED_CONTENT_JSON = JSON.stringify([
+    { id: 'sp1', sponsorName: 'Acme Test Prep', headline: 'Prep for your language test', linkUrl: 'https://example.com/acme' },
+    { id: 'sp2', sponsorName: 'City Hostels Co', headline: 'Book your first month free', linkUrl: 'https://example.com/hostels', placement: 'accommodation_list' },
+  ]);
+  try {
+    const pool = mockPool(() => ({ rows: [] }));
+    const app = createApp({ pool });
+    const server = app.listen(0);
+    const { port } = server.address();
+    const defaultResponse = await fetch(`http://localhost:${port}/api/v1/sponsored-content`);
+    const defaultData = await defaultResponse.json();
+    assert.equal(defaultData.length, 2);
+    assert.equal(defaultData.find((item) => item.id === 'sp1').placement, 'SEARCH_RESULTS');
+    assert.equal(defaultData.find((item) => item.id === 'sp2').placement, 'ACCOMMODATION_LIST');
+    const accommodationResponse = await fetch(`http://localhost:${port}/api/v1/sponsored-content?placement=accommodation_list`);
+    const accommodationData = await accommodationResponse.json();
+    assert.equal(accommodationData.length, 1);
+    assert.equal(accommodationData[0].id, 'sp2');
+    server.close();
+  } finally {
+    if (originalContent === undefined) delete process.env.SPONSORED_CONTENT_JSON;
+    else process.env.SPONSORED_CONTENT_JSON = originalContent;
+  }
+});
+
 test('GET /api/v1/universities/:id records an anonymous demand event on a successful lookup', async () => {
   let insertParams = null;
   const pool = mockPool((text, params) => {

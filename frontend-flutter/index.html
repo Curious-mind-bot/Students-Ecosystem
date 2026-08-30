@@ -296,6 +296,7 @@
                     <input id="accommodation-max-rent" type="number" min="0" placeholder="e.g. 700">
                 </div>
                 <button class="btn" type="button" onclick="searchAccommodations()" data-i18n="search">Search</button>
+                <div id="accommodation-sponsored-slot" aria-live="polite" style="margin-top:12px"></div>
                 <div id="accommodation-results" aria-live="polite" style="margin-top:12px;font-size:.8rem;color:#cbd5e1;line-height:1.5"></div>
             </div>
 
@@ -862,12 +863,15 @@
           </div>`).join('');
       }
 
-      async function loadSponsoredContent(countryCode) {
-        const slot = document.getElementById('sponsored-slot');
+      async function loadSponsoredContent(countryCode, placement, slotId) {
+        const slot = document.getElementById(slotId || 'sponsored-slot');
         if (!slot) return;
         try {
-          const params = countryCode ? `?countryCode=${encodeURIComponent(countryCode)}` : '';
-          const response = await fetch(`/api/v1/sponsored-content${params}`);
+          const params = new URLSearchParams();
+          if (countryCode) params.set('countryCode', countryCode);
+          if (placement) params.set('placement', placement);
+          const query = params.toString();
+          const response = await fetch(`/api/v1/sponsored-content${query ? `?${query}` : ''}`);
           const data = await response.json();
           slot.innerHTML = response.ok ? renderSponsoredContent(data) : '';
         } catch (_error) {
@@ -1441,6 +1445,11 @@
             ${a.distance_to_university_km != null ? `<div>Distance to university: ${a.distance_to_university_km} km</div>` : ''}
             ${(a.amenities || []).length ? `<div>Amenities: ${escapeHtml(a.amenities.join(', '))}</div>` : ''}
             ${a.application_url ? `<div><a href="${escapeHtml(a.application_url)}" target="_blank" rel="noopener">Application page</a></div>` : ''}
+            ${a.partner_id ? `
+              <div style="margin-top:6px">
+                ${getToken() ? `<button class="btn" type="button" onclick="continueToPartner('${escapeHtml(a.partner_id)}')">Book via verified partner</button>` : ''}
+                <div style="color:#94a3b8;font-size:.75rem;margin-top:4px">Students-Ecosystem may earn a commission if you book through this partner, at no extra cost to you. Using it is always optional.</div>
+              </div>` : ''}
             <div style="color:#94a3b8">Source: <a href="${escapeHtml(a.source_url)}" target="_blank" rel="noopener">${escapeHtml(a.source_url)}</a> (checked ${escapeHtml(a.source_checked_on)})</div>
           </div>`;
       }
@@ -1450,6 +1459,7 @@
         const maxRent = document.getElementById('accommodation-max-rent').value;
         const resultsEl = document.getElementById('accommodation-results');
         resultsEl.textContent = 'Searching…';
+        loadSponsoredContent(null, 'ACCOMMODATION_LIST', 'accommodation-sponsored-slot');
         const params = new URLSearchParams();
         if (city) params.set('city', city);
         if (maxRent) params.set('maxRent', maxRent);
