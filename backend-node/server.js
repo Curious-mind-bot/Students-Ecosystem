@@ -262,6 +262,7 @@ function createMailer() {
 
 function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_URL }), mailer = null } = {}) {
   const app = express();
+  app.set("trust proxy", 1);
   app.use(express.json({ limit: '100kb' }));
   app.use(express.static(path.join(__dirname, '..', 'frontend-flutter')));
 
