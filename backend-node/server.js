@@ -761,7 +761,8 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
       return res.status(200).json(rows[0]);
     } catch (error) {
       if (error.code === '23505') return res.status(409).json({ error: 'That email is already in use by another account.' });
-      throw error;
+      console.error("REGISTER_ERROR:", error);
+      return res.status(500).json({ error: error.message || "Registration failed" });
     }
   });
 
@@ -1125,7 +1126,8 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
       return res.status(200).json({ status: 'APPROVED', result });
     } catch (error) {
       if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
-      throw error;
+      console.error("REGISTER_ERROR:", error);
+      return res.status(500).json({ error: error.message || "Registration failed" });
     }
   });
 
@@ -1157,7 +1159,8 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
       return res.status(201).json(result);
     } catch (error) {
       if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
-      throw error;
+      console.error("REGISTER_ERROR:", error);
+      return res.status(500).json({ error: error.message || "Registration failed" });
     }
   });
 
@@ -1167,7 +1170,8 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
       return res.status(204).end();
     } catch (error) {
       if (error.statusCode) return res.status(error.statusCode).json({ error: error.message });
-      throw error;
+      console.error("REGISTER_ERROR:", error);
+      return res.status(500).json({ error: error.message || "Registration failed" });
     }
   });
 
@@ -1180,7 +1184,8 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
     } catch (error) {
       const friendly = friendlyDbError(error);
       if (friendly) return res.status(400).json({ error: friendly });
-      throw error;
+      console.error("REGISTER_ERROR:", error);
+      return res.status(500).json({ error: error.message || "Registration failed" });
     }
   });
 
