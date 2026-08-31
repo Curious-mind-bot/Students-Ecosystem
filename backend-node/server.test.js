@@ -1584,3 +1584,213 @@ test('POST /api/v1/admin/submissions/:id/reject returns 404 when not found or al
   assert.equal(response.status, 404);
   server.close();
 }));
+
+// These three creation endpoints (applications_tracker, professor_lor_requests,
+// partner_conversions) all insert into tables with DB-generated integer ids via
+// RETURNING rather than a client-generated crypto.randomUUID() (see the fix in
+// commit 2a48e4e). None of them had test coverage before, which is exactly why
+// that bug went unnoticed by this suite -- these tests specifically assert the
+// response echoes back the DB-generated id from the mocked RETURNING row.
+
+test('POST /api/v1/applications creates an application and its document checklist using DB-generated ids', async () => {
+  const insertedDocuments = [];
+  const pool = {
+    query: async () => ({ rows: [] }),
+    connect: async () => ({
+      query: async (text, params) => {
+        if (text === 'BEGIN' || text === 'COMMIT' || text === 'ROLLBACK') return {};
+        if (/INSERT INTO applications_tracker/.test(text)) {
+          assert.deepEqual(params, ['u1', 'DE', 'LMU Munich', 'M.Sc. CS', null, null]);
+          return { rows: [{ application_id: 42 }] };
+        }
+        if (/INSERT INTO application_documents/.test(text)) {
+          insertedDocuments.push(params);
+          return {};
+        }
+        throw new Error(`Unexpected query: ${text}`);
+      },
+      release() {},
+    }),
+  };
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/applications`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      countryCode: 'de', universityName: 'LMU Munich', programTitle: 'M.Sc. CS',
+      documents: [{ type: 'transcript', sourceUrl: 'https://example.edu' }],
+    }),
+  });
+  const data = await response.json();
+  assert.equal(response.status, 201);
+  assert.equal(data.applicationId, 42);
+  assert.equal(insertedDocuments.length, 1);
+  assert.equal(insertedDocuments[0][1], 42);
+  assert.equal(insertedDocuments[0][2], 'transcript');
+  assert.equal(insertedDocuments[0][3], 'https://example.edu');
+  assert.equal(insertedDocuments[0][4], 'NOT_STARTED');
+  server.close();
+});
+
+test('POST /api/v1/applications requires countryCode, universityName, and programTitle', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/applications`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({ countryCode: 'DE' }),
+  });
+  assert.equal(response.status, 400);
+  server.close();
+});
+
+test('POST /api/v1/applications rolls back and returns 400 for an invalid document checklist item', async () => {
+  let rolledBack = false;
+  const pool = {
+    query: async () => ({ rows: [] }),
+    connect: async () => ({
+      query: async (text) => {
+        if (text === 'BEGIN') return {};
+        if (text === 'ROLLBACK') { rolledBack = true; return {}; }
+        if (/INSERT INTO applications_tracker/.test(text)) return { rows: [{ application_id: 42 }] };
+        throw new Error(`Unexpected query: ${text}`);
+      },
+      release() {},
+    }),
+  };
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+  const response = await fetch(`http://localhost:${port}/api/v1/applications`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    body: JSON.stringify({
+      countryCode: 'DE', universityName: 'LMU Munich', programTitle: 'M.Sc. CS',
+      documents: [{ type: '' }],
+    }),
+  });
+  assert.equal(response.status, 400);
+  assert.ok(rolledBack);
+  server.close();
+});
+
+test('POST /api/v1/lor/requests creates a request using the DB-generated id and emails the professor', async () => {
+  const pool = mockPool((text, params) => {
+    if (/INSERT INTO professor_lor_requests/.test(text)) {
+      assert.equal(params[0], 'u1');
+      assert.equal(params[1], 'Prof Smith');
+      assert.equal(params[2], 'prof@example.com');
+      assert.equal(params[3], 'MIT');
+      return { rows: [{ request_id: 7 }] };
+    }
+    return { rows: [] };
+  });
+  const sent = [];
+  const mailer = { sendMail: async (message) => { sent.push(message); } };
+  const originalUrl = process.env.PUBLIC_APP_URL;
+  process.env.PUBLIC_APP_URL = 'https://students-ecosystem.example';
+  try {
+    const app = createApp({ pool, mailer });
+    const server = app.listen(0);
+    const { port } = server.address();
+    const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+    const response = await fetch(`http://localhost:${port}/api/v1/lor/requests`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ professorName: 'Prof Smith', professorEmail: 'prof@example.com', universityAffiliation: 'MIT' }),
+    });
+    const data = await response.json();
+    assert.equal(response.status, 201);
+    assert.equal(data.requestId, 7);
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].to, 'prof@example.com');
+    assert.match(sent[0].text, /\/referee\/reference\//);
+    server.close();
+  } finally {
+    if (originalUrl === undefined) delete process.env.PUBLIC_APP_URL;
+    else process.env.PUBLIC_APP_URL = originalUrl;
+  }
+});
+
+test('POST /api/v1/lor/requests deletes the request and returns 503 when the email fails to send', async () => {
+  let deletedRequestId;
+  const pool = mockPool((text, params) => {
+    if (/INSERT INTO professor_lor_requests/.test(text)) return { rows: [{ request_id: 7 }] };
+    if (/DELETE FROM professor_lor_requests/.test(text)) { deletedRequestId = params[0]; return {}; }
+    return { rows: [] };
+  });
+  const mailer = { sendMail: async () => { throw new Error('SMTP down'); } };
+  const originalUrl = process.env.PUBLIC_APP_URL;
+  process.env.PUBLIC_APP_URL = 'https://students-ecosystem.example';
+  try {
+    const app = createApp({ pool, mailer });
+    const server = app.listen(0);
+    const { port } = server.address();
+    const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+    const response = await fetch(`http://localhost:${port}/api/v1/lor/requests`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ professorName: 'Prof Smith', professorEmail: 'prof@example.com', universityAffiliation: 'MIT' }),
+    });
+    assert.equal(response.status, 503);
+    assert.equal(deletedRequestId, 7);
+    server.close();
+  } finally {
+    if (originalUrl === undefined) delete process.env.PUBLIC_APP_URL;
+    else process.env.PUBLIC_APP_URL = originalUrl;
+  }
+});
+
+test('POST /api/v1/partners/:partnerId/continue records a conversion and returns a tracked redirect', async () => {
+  let insertParams;
+  const pool = mockPool((text, params) => {
+    if (/INSERT INTO partner_conversions/.test(text)) { insertParams = params; return {}; }
+    return { rows: [] };
+  });
+  const originalPartners = process.env.PARTNERS_JSON;
+  process.env.PARTNERS_JSON = JSON.stringify([{
+    id: 'partner-abc', name: 'Test Partner', category: 'ACCOMMODATION',
+    redirectUrl: 'https://partner.example/landing', sourceAttribution: 'accommodation_list_click',
+  }]);
+  try {
+    const app = createApp({ pool });
+    const server = app.listen(0);
+    const { port } = server.address();
+    const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+    const response = await fetch(`http://localhost:${port}/api/v1/partners/partner-abc/continue`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(data.partner, 'Test Partner');
+    assert.match(data.redirectUrl, /^https:\/\/partner\.example\/landing\?ref=/);
+    assert.deepEqual(insertParams.slice(0, 3), ['u1', 'partner-abc', 'ACCOMMODATION']);
+    assert.equal(insertParams[4], 'accommodation_list_click');
+    server.close();
+  } finally {
+    if (originalPartners === undefined) delete process.env.PARTNERS_JSON;
+    else process.env.PARTNERS_JSON = originalPartners;
+  }
+});
+
+test('POST /api/v1/partners/:partnerId/continue returns 404 for an unknown partner', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const originalPartners = process.env.PARTNERS_JSON;
+  delete process.env.PARTNERS_JSON;
+  try {
+    const app = createApp({ pool });
+    const server = app.listen(0);
+    const { port } = server.address();
+    const token = require('jsonwebtoken').sign({ sub: 'u1' }, process.env.JWT_SECRET, { algorithm: 'HS256' });
+    const response = await fetch(`http://localhost:${port}/api/v1/partners/does-not-exist/continue`, {
+      method: 'POST', headers: { Authorization: `Bearer ${token}` },
+    });
+    assert.equal(response.status, 404);
+    server.close();
+  } finally {
+    if (originalPartners === undefined) delete process.env.PARTNERS_JSON;
+    else process.env.PARTNERS_JSON = originalPartners;
+  }
+});
