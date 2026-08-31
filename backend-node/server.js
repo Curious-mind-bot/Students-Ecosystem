@@ -822,12 +822,12 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      const applicationId = crypto.randomUUID();
-      await client.query(
-        `INSERT INTO applications_tracker (application_id, user_id, country_code, university_name, program_title, programme_url, deadline_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [applicationId, req.user.id, countryCode.toUpperCase(), universityName, programTitle, programmeUrl || null, deadlineAt || null],
+      const { rows: applicationRows } = await client.query(
+        `INSERT INTO applications_tracker (user_id, country_code, university_name, program_title, programme_url, deadline_at)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING application_id`,
+        [req.user.id, countryCode.toUpperCase(), universityName, programTitle, programmeUrl || null, deadlineAt || null],
       );
+      const applicationId = applicationRows[0].application_id;
       for (const document of documents) {
         if (!document.type || (document.status && !DOCUMENT_STATUSES.has(document.status))) throw new Error('Invalid document checklist item.');
         await client.query(
@@ -950,16 +950,17 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
     let transporter;
     try { transporter = mailer || createMailer(); requireEnv('PUBLIC_APP_URL'); }
     catch (_error) { return res.status(503).json({ error: 'The recommendation email service is not configured. No email was sent.' }); }
-    const requestId = crypto.randomUUID();
     const token = crypto.randomBytes(32).toString('base64url');
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
     const expiresAt = new Date(Date.now() + 14 * 24 * 60 * 60 * 1000);
+    let requestId;
     try {
-      await pool.query(
-        `INSERT INTO professor_lor_requests (request_id, user_id, professor_name, professor_email, university_affiliation, token_hash, expires_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [requestId, req.user.id, professorName, professorEmail, universityAffiliation, tokenHash, expiresAt],
+      const { rows } = await pool.query(
+        `INSERT INTO professor_lor_requests (user_id, professor_name, professor_email, university_affiliation, token_hash, expires_at)
+         VALUES ($1, $2, $3, $4, $5, $6) RETURNING request_id`,
+        [req.user.id, professorName, professorEmail, universityAffiliation, tokenHash, expiresAt],
       );
+      requestId = rows[0].request_id;
       const url = new URL(`/referee/reference/${token}`, process.env.PUBLIC_APP_URL);
       await transporter.sendMail({
         from: process.env.EMAIL_FROM || process.env.EMAIL_USER, to: professorEmail,
@@ -1002,9 +1003,9 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
     if (!partner) return res.status(404).json({ error: 'Verified partner not found.' });
     const trackingToken = crypto.randomBytes(24).toString('base64url');
     await pool.query(
-      `INSERT INTO partner_conversions (conversion_id, user_id, partner_id, partner_category, unique_tracking_token, source_attribution)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
-      [crypto.randomUUID(), req.user.id, partner.id, partner.category, trackingToken, partner.sourceAttribution],
+      `INSERT INTO partner_conversions (user_id, partner_id, partner_category, unique_tracking_token, source_attribution)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [req.user.id, partner.id, partner.category, trackingToken, partner.sourceAttribution],
     );
     const destination = new URL(partner.redirectUrl);
     destination.searchParams.set('ref', trackingToken);
