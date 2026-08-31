@@ -1,7 +1,7 @@
 -- Students-Ecosystem Sprint 1 schema. Run through a migration tool in production.
 
 CREATE TABLE users (
-    user_id UUID PRIMARY KEY,
+    user_id SERIAL PRIMARY KEY,
     full_name VARCHAR(150) NOT NULL,
     email VARCHAR(254) UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
@@ -14,7 +14,7 @@ CREATE TABLE users (
 
 CREATE TABLE applications_tracker (
     application_id UUID PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     country_code CHAR(2) NOT NULL,
     university_name VARCHAR(200) NOT NULL,
     program_title VARCHAR(200) NOT NULL,
@@ -46,7 +46,7 @@ CREATE TABLE application_documents (
 -- policy exists (see application_documents and professor_lor_requests below).
 CREATE TABLE student_documents (
     student_document_id UUID PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     document_type VARCHAR(80) NOT NULL,
     label VARCHAR(150),
     obtained_at DATE,
@@ -65,7 +65,7 @@ CREATE TABLE student_documents (
 -- traceable to where the submitter says it came from.
 CREATE TABLE content_submissions (
     submission_id UUID PRIMARY KEY,
-    submitted_by_user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
+    submitted_by_user_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
     target_resource VARCHAR(50) NOT NULL
         CHECK (target_resource IN ('universities', 'academic_programs', 'admission_requirements', 'scholarships', 'program_fees', 'living_cost_estimates', 'visa_requirements', 'student_accommodations', 'support_resources')),
     target_record_id UUID,
@@ -83,7 +83,7 @@ CREATE INDEX content_submissions_submitted_by_user_id_idx ON content_submissions
 
 CREATE TABLE professor_lor_requests (
     request_id UUID PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     professor_name VARCHAR(150) NOT NULL,
     professor_email VARCHAR(254) NOT NULL,
     university_affiliation VARCHAR(200) NOT NULL,
@@ -98,7 +98,7 @@ CREATE TABLE professor_lor_requests (
 
 CREATE TABLE password_reset_tokens (
     token_id UUID PRIMARY KEY,
-    user_id UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     token_hash CHAR(64) UNIQUE NOT NULL,
     expires_at TIMESTAMPTZ NOT NULL,
     consumed_at TIMESTAMPTZ,
@@ -107,7 +107,7 @@ CREATE TABLE password_reset_tokens (
 
 CREATE TABLE partner_conversions (
     conversion_id UUID PRIMARY KEY,
-    user_id UUID REFERENCES users(user_id) ON DELETE SET NULL,
+    user_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
     partner_id VARCHAR(80) NOT NULL,
     partner_category VARCHAR(50) NOT NULL,
     unique_tracking_token VARCHAR(128) UNIQUE NOT NULL,
