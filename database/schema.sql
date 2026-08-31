@@ -13,7 +13,7 @@ CREATE TABLE users (
 );
 
 CREATE TABLE applications_tracker (
-    application_id UUID PRIMARY KEY,
+    application_id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     country_code CHAR(2) NOT NULL,
     university_name VARCHAR(200) NOT NULL,
@@ -29,7 +29,7 @@ CREATE TABLE applications_tracker (
 
 CREATE TABLE application_documents (
     document_id UUID PRIMARY KEY,
-    application_id UUID NOT NULL REFERENCES applications_tracker(application_id) ON DELETE CASCADE,
+    application_id INTEGER NOT NULL REFERENCES applications_tracker(application_id) ON DELETE CASCADE,
     document_type VARCHAR(80) NOT NULL,
     requirement_source_url TEXT,
     status VARCHAR(30) NOT NULL DEFAULT 'NOT_STARTED'
@@ -82,7 +82,7 @@ CREATE INDEX content_submissions_status_idx ON content_submissions(status);
 CREATE INDEX content_submissions_submitted_by_user_id_idx ON content_submissions(submitted_by_user_id);
 
 CREATE TABLE professor_lor_requests (
-    request_id UUID PRIMARY KEY,
+    request_id SERIAL PRIMARY KEY,
     user_id INTEGER NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
     professor_name VARCHAR(150) NOT NULL,
     professor_email VARCHAR(254) NOT NULL,
@@ -106,7 +106,7 @@ CREATE TABLE password_reset_tokens (
 );
 
 CREATE TABLE partner_conversions (
-    conversion_id UUID PRIMARY KEY,
+    conversion_id SERIAL PRIMARY KEY,
     user_id INTEGER REFERENCES users(user_id) ON DELETE SET NULL,
     partner_id VARCHAR(80) NOT NULL,
     partner_category VARCHAR(50) NOT NULL,
