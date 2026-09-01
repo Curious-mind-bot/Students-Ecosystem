@@ -427,6 +427,9 @@
                 <div id="review-result" role="status" aria-live="polite" style="font-size:.8rem;color:#cbd5e1;line-height:1.5;margin-top:12px"></div>
             </div>
         </main>
+        <footer style="padding:12px 20px;text-align:center;font-size:.7rem;color:#64748b;border-top:1px solid #334155">
+            <a href="/privacy" style="color:#64748b">Privacy Policy</a> &middot; <a href="/terms" style="color:#64748b">Terms of Service</a>
+        </footer>
     </div>
 
     <script>
@@ -911,7 +914,7 @@
             <div style="font-size:.8rem;color:#94a3b8">${escapeHtml(p.category)}</div>
             ${p.description ? `<div>${escapeHtml(p.description)}</div>` : ''}
             <div style="color:#94a3b8;font-size:.75rem;margin-top:4px">${escapeHtml(p.affiliateDisclosure)}</div>
-            ${getToken() ? `<button class="btn" type="button" onclick="continueToPartner('${p.id}')">${t('continue_to_partner')}</button>` : ''}
+            <button class="btn" type="button" onclick="continueToPartner('${p.id}')">${t('continue_to_partner')}</button>
           </div>`;
       }
 
@@ -930,10 +933,9 @@
 
       async function continueToPartner(partnerId) {
         const token = getToken();
-        if (!token) { alert('Please log in first.'); return; }
         try {
           const response = await fetch(`/api/v1/partners/${partnerId}/continue`, {
-            method: 'POST', headers: { Authorization: `Bearer ${token}` },
+            method: 'POST', headers: token ? { Authorization: `Bearer ${token}` } : {},
           });
           const data = await response.json();
           if (!response.ok) throw new Error(data.error || 'Could not continue to this partner.');
@@ -1447,7 +1449,7 @@
             ${a.application_url ? `<div><a href="${escapeHtml(a.application_url)}" target="_blank" rel="noopener">Application page</a></div>` : ''}
             ${a.partner_id ? `
               <div style="margin-top:6px">
-                ${getToken() ? `<button class="btn" type="button" onclick="continueToPartner('${escapeHtml(a.partner_id)}')">Book via verified partner</button>` : ''}
+                <button class="btn" type="button" onclick="continueToPartner('${escapeHtml(a.partner_id)}')">Book via verified partner</button>
                 <div style="color:#94a3b8;font-size:.75rem;margin-top:4px">Students-Ecosystem may earn a commission if you book through this partner, at no extra cost to you. Using it is always optional.</div>
               </div>` : ''}
             <div style="color:#94a3b8">Source: <a href="${escapeHtml(a.source_url)}" target="_blank" rel="noopener">${escapeHtml(a.source_url)}</a> (checked ${escapeHtml(a.source_checked_on)})</div>

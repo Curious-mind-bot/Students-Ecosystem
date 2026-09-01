@@ -1775,6 +1775,33 @@ test('POST /api/v1/partners/:partnerId/continue records a conversion and returns
   }
 });
 
+test('POST /api/v1/partners/:partnerId/continue records a null user_id for an anonymous visitor', async () => {
+  let insertParams;
+  const pool = mockPool((text, params) => {
+    if (/INSERT INTO partner_conversions/.test(text)) { insertParams = params; return {}; }
+    return { rows: [] };
+  });
+  const originalPartners = process.env.PARTNERS_JSON;
+  process.env.PARTNERS_JSON = JSON.stringify([{
+    id: 'partner-abc', name: 'Test Partner', category: 'ACCOMMODATION',
+    redirectUrl: 'https://partner.example/landing', sourceAttribution: 'accommodation_list_click',
+  }]);
+  try {
+    const app = createApp({ pool });
+    const server = app.listen(0);
+    const { port } = server.address();
+    const response = await fetch(`http://localhost:${port}/api/v1/partners/partner-abc/continue`, { method: 'POST' });
+    const data = await response.json();
+    assert.equal(response.status, 200);
+    assert.match(data.redirectUrl, /^https:\/\/partner\.example\/landing\?ref=/);
+    assert.equal(insertParams[0], null);
+    server.close();
+  } finally {
+    if (originalPartners === undefined) delete process.env.PARTNERS_JSON;
+    else process.env.PARTNERS_JSON = originalPartners;
+  }
+});
+
 test('POST /api/v1/partners/:partnerId/continue returns 404 for an unknown partner', async () => {
   const pool = mockPool(() => ({ rows: [] }));
   const originalPartners = process.env.PARTNERS_JSON;
@@ -1793,4 +1820,28 @@ test('POST /api/v1/partners/:partnerId/continue returns 404 for an unknown partn
     if (originalPartners === undefined) delete process.env.PARTNERS_JSON;
     else process.env.PARTNERS_JSON = originalPartners;
   }
+});
+
+test('GET /privacy serves the privacy policy page', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/privacy`);
+  const body = await response.text();
+  assert.equal(response.status, 200);
+  assert.match(body, /Privacy Policy — Students-Ecosystem/);
+  server.close();
+});
+
+test('GET /terms serves the terms of service page', async () => {
+  const pool = mockPool(() => ({ rows: [] }));
+  const app = createApp({ pool });
+  const server = app.listen(0);
+  const { port } = server.address();
+  const response = await fetch(`http://localhost:${port}/terms`);
+  const body = await response.text();
+  assert.equal(response.status, 200);
+  assert.match(body, /Terms of Service — Students-Ecosystem/);
+  server.close();
 });

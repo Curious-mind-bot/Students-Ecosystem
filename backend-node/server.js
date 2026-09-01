@@ -147,6 +147,22 @@ function authRequired(req, res, next) {
   }
 }
 
+// Like authRequired, but never rejects — sets req.user when a valid token is
+// present, otherwise leaves it null and continues. For endpoints (like the
+// partner-referral tracker) that should work for anonymous visitors too.
+function optionalAuth(req, res, next) {
+  const header = req.get('authorization') || '';
+  const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+  if (!token) { req.user = null; return next(); }
+  try {
+    const payload = jwt.verify(token, requireEnv('JWT_SECRET'), { algorithms: ['HS256'] });
+    req.user = payload.sub ? { id: payload.sub } : null;
+  } catch (_error) {
+    req.user = null;
+  }
+  return next();
+}
+
 function hashPassword(password) {
   const salt = crypto.randomBytes(16).toString('hex');
   const hash = crypto.scryptSync(password, salt, 64).toString('hex');
@@ -265,6 +281,9 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
   app.set("trust proxy", 1);
   app.use(express.json({ limit: '100kb' }));
   app.use(express.static(path.join(__dirname, '..', 'frontend-flutter')));
+
+  app.get('/privacy', (_req, res) => res.sendFile(path.join(__dirname, '..', 'frontend-flutter', 'privacy.html')));
+  app.get('/terms', (_req, res) => res.sendFile(path.join(__dirname, '..', 'frontend-flutter', 'terms.html')));
 
   app.use((req, res, next) => {
     const startedAt = Date.now();
@@ -998,14 +1017,14 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
     res.json(getPartners().map(({ redirectUrl, ...partner }) => ({ ...partner, affiliateDisclosure: 'This link may generate a commission for Students-Ecosystem at no additional cost to you.' })));
   });
 
-  app.post('/api/v1/partners/:partnerId/continue', authRequired, async (req, res) => {
+  app.post('/api/v1/partners/:partnerId/continue', optionalAuth, async (req, res) => {
     const partner = getPartners().find((item) => item.id === req.params.partnerId);
     if (!partner) return res.status(404).json({ error: 'Verified partner not found.' });
     const trackingToken = crypto.randomBytes(24).toString('base64url');
     await pool.query(
       `INSERT INTO partner_conversions (user_id, partner_id, partner_category, unique_tracking_token, source_attribution)
        VALUES ($1, $2, $3, $4, $5)`,
-      [req.user.id, partner.id, partner.category, trackingToken, partner.sourceAttribution],
+      [req.user ? req.user.id : null, partner.id, partner.category, trackingToken, partner.sourceAttribution],
     );
     const destination = new URL(partner.redirectUrl);
     destination.searchParams.set('ref', trackingToken);
