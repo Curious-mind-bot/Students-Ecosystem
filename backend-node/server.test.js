@@ -2,7 +2,7 @@ process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-secret';
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { createApp, hashPassword, computeCostView } = require('./server');
+const { createApp, hashPassword, computeCostView, createMailer } = require('./server');
 
 function mockPool(handler) {
   return { query: async (text, params) => handler(text, params), connect: async () => ({ query: async () => ({ rows: [] }), release() {} }) };
@@ -1844,4 +1844,15 @@ test('GET /terms serves the terms of service page', async () => {
   assert.equal(response.status, 200);
   assert.match(body, /Terms of Service — Students-Ecosystem/);
   server.close();
+});
+
+test('createMailer throws when BREVO_API_KEY is not configured', () => {
+  const original = process.env.BREVO_API_KEY;
+  delete process.env.BREVO_API_KEY;
+  try {
+    assert.throws(() => createMailer(), /BREVO_API_KEY is required/);
+  } finally {
+    if (original === undefined) delete process.env.BREVO_API_KEY;
+    else process.env.BREVO_API_KEY = original;
+  }
 });

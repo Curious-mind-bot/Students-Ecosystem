@@ -3,7 +3,6 @@ const { spawn } = require('child_process');
 const path = require('path');
 const express = require('express');
 const jwt = require('jsonwebtoken');
-const nodemailer = require('nodemailer');
 const rateLimit = require('express-rate-limit');
 const Sentry = require('@sentry/node');
 const { Pool } = require('pg');
@@ -268,12 +267,21 @@ function getSponsoredContent() {
 }
 
 function createMailer() {
-  return nodemailer.createTransport({
-    host: requireEnv('EMAIL_HOST'),
-    port: Number(process.env.EMAIL_PORT || 465),
-    secure: process.env.EMAIL_SECURE !== 'false',
-    auth: { user: requireEnv('EMAIL_USER'), pass: requireEnv('EMAIL_PASSWORD') },
-  });
+  const apiKey = requireEnv('BREVO_API_KEY');
+  const from = requireEnv('EMAIL_FROM');
+  return {
+    async sendMail({ to, subject, text }) {
+      const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+        method: 'POST',
+        headers: { 'api-key': apiKey, 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ sender: { email: from }, to: [{ email: to }], subject, textContent: text }),
+      });
+      if (!response.ok) {
+        const body = await response.text().catch(() => '');
+        throw new Error(`Brevo API request failed (${response.status}): ${body}`);
+      }
+    },
+  };
 }
 
 function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_URL }), mailer = null } = {}) {
@@ -357,7 +365,7 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
         const url = new URL('/', process.env.PUBLIC_APP_URL);
         url.searchParams.set('resetToken', token);
         await transporter.sendMail({
-          from: process.env.EMAIL_FROM || process.env.EMAIL_USER, to: email,
+          to: email,
           subject: 'Reset your Students-Ecosystem password',
           text: `Hi ${rows[0].full_name},\n\nUse this link within 1 hour to reset your password: ${url.toString()}\n\nIf you didn't request this, you can ignore this email.`,
         });
@@ -366,7 +374,7 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
     } catch (error) {
       // Never leak account existence or infra/config errors to an unauthenticated caller —
       // the client always gets genericResponse — but log server-side so a misconfigured
-      // mailer (e.g. missing EMAIL_HOST) is visible instead of looking like a silent success.
+      // mailer (e.g. missing BREVO_API_KEY) is visible instead of looking like a silent success.
       console.error(`[password-reset] request failed: ${error.message}`);
     }
     return res.json(genericResponse);
@@ -988,7 +996,7 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
       requestId = rows[0].request_id;
       const url = new URL(`/referee/reference/${token}`, process.env.PUBLIC_APP_URL);
       await transporter.sendMail({
-        from: process.env.EMAIL_FROM || process.env.EMAIL_USER, to: professorEmail,
+        to: professorEmail,
         subject: 'Request for an academic reference',
         text: `Dear ${professorName},\n\nA student has requested an academic reference. If you choose to provide one, use this single-use link before ${expiresAt.toISOString()}: ${url}\n\nThank you.`,
       });
