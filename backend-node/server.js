@@ -361,8 +361,14 @@ function createApp({ pool = new Pool({ connectionString: process.env.DATABASE_UR
           subject: 'Reset your Students-Ecosystem password',
           text: `Hi ${rows[0].full_name},\n\nUse this link within 1 hour to reset your password: ${url.toString()}\n\nIf you didn't request this, you can ignore this email.`,
         });
+        console.log(`[password-reset] reset email sent for user_id=${rows[0].user_id}`);
       }
-    } catch (_error) { /* never leak account existence or infra/config errors to an unauthenticated caller */ }
+    } catch (error) {
+      // Never leak account existence or infra/config errors to an unauthenticated caller —
+      // the client always gets genericResponse — but log server-side so a misconfigured
+      // mailer (e.g. missing EMAIL_HOST) is visible instead of looking like a silent success.
+      console.error(`[password-reset] request failed: ${error.message}`);
+    }
     return res.json(genericResponse);
   });
 
