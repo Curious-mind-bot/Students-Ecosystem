@@ -254,6 +254,21 @@
             </div>
 
             <div class="card">
+                <div class="card-title">Admission Requirements</div>
+                <p style="font-size:.8rem;color:#cbd5e1;line-height:1.4">Search for a university, pick a programme, and see its minimum CGPA, funds requirement, language test score, and required documents — sourced and dated.</p>
+                <div class="input-group">
+                    <label for="admission-university-search">Search by university name</label>
+                    <input id="admission-university-search" type="text" placeholder="e.g. LMU Munich">
+                </div>
+                <div class="input-group">
+                    <label for="admission-university-country">Country code</label>
+                    <input id="admission-university-country" type="text" maxlength="2" placeholder="e.g. DE">
+                </div>
+                <button class="btn" type="button" onclick="searchAdmissionRequirements()">Search</button>
+                <div id="admission-requirements-results" aria-live="polite" style="margin-top:12px;font-size:.8rem;color:#cbd5e1;line-height:1.5"></div>
+            </div>
+
+            <div class="card">
                 <div class="card-title" data-i18n="card_scholarships">Scholarships</div>
                 <div class="input-group">
                     <label for="scholarship-search">Search by name or provider</label>
@@ -910,6 +925,54 @@
         } catch (error) {
           resultsEl.textContent = error.message;
         }
+      }
+
+      async function searchAdmissionRequirements() {
+        const search = document.getElementById('admission-university-search').value;
+        const country = document.getElementById('admission-university-country').value;
+        const resultsEl = document.getElementById('admission-requirements-results');
+        resultsEl.textContent = 'Searching…';
+        const params = new URLSearchParams();
+        if (search) params.set('search', search);
+        if (country) params.set('country', country);
+        try {
+          const response = await fetch(`/api/v1/universities?${params.toString()}`);
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Search failed.');
+          if (!data.length) { resultsEl.textContent = 'No universities matched.'; return; }
+          resultsEl.innerHTML = data.map((u) => `
+            <div style="margin-bottom:6px">
+              <a href="#" onclick="showAdmissionUniversityPrograms('${u.university_id}'); return false;">${escapeHtml(u.name)}</a>
+              <span style="color:#94a3b8"> · ${escapeHtml(u.city || '')}, ${escapeHtml(u.country_code)}</span>
+            </div>`).join('');
+        } catch (error) {
+          resultsEl.textContent = error.message;
+        }
+      }
+
+      async function showAdmissionUniversityPrograms(universityId) {
+        const resultsEl = document.getElementById('admission-requirements-results');
+        resultsEl.textContent = 'Loading programmes…';
+        try {
+          const response = await fetch(`/api/v1/universities/${universityId}`);
+          const data = await response.json();
+          if (!response.ok) throw new Error(data.error || 'Could not load university.');
+          const programs = data.programs || [];
+          resultsEl.innerHTML = `<div style="font-weight:bold;margin-bottom:6px">${escapeHtml(data.name)}</div>` +
+            (programs.length ? programs.map((p) => `
+              <div style="margin-bottom:6px">
+                <a href="#" onclick="showAdmissionRequirementsForProgram('${p.program_id}'); return false;">${escapeHtml(p.title)}</a>
+                <span style="color:#94a3b8"> (${escapeHtml(p.degree_level)})</span>
+              </div>`).join('') : 'No programmes listed for this university yet.');
+        } catch (error) {
+          resultsEl.textContent = error.message;
+        }
+      }
+
+      async function showAdmissionRequirementsForProgram(programId) {
+        await showProgram(programId);
+        const detailsEl = document.getElementById('program-details');
+        if (detailsEl) detailsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }
 
       function renderPartner(p) {
