@@ -703,7 +703,12 @@
         if (!resetToken) return;
         pendingResetToken = resetToken;
         const section = document.getElementById('reset-password-section');
-        if (section) section.style.display = 'block';
+        if (section) {
+          section.style.display = 'block';
+          section.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+        const statusEl = document.getElementById('account-status');
+        if (statusEl) statusEl.textContent = 'Enter a new password below to finish resetting your account.';
       }
 
       async function requestPasswordReset() {
